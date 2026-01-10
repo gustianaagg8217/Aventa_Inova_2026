@@ -8,7 +8,11 @@
 - ⚠️ Web dashboard (early version)
 # HFT GOLD Trading System - Production Ready
 
+<<<<<<< HEAD
 **Status**: Active Development (Production-Oriented Research)tambahkan:
+=======
+**Status**: Active Development (Production-Oriented Research)
+>>>>>>> 293c1a76a5c96e1ffc07ef4a35a6a913cfb57e7d
 
 A state-of-the-art High-Frequency Trading (HFT) system for GOLD/XAUUSD with MetaTrader 5 integration. This system combines advanced market microstructure analysis, machine learning, and ultra-low latency execution for professional trading.
 
@@ -63,7 +67,11 @@ A state-of-the-art High-Frequency Trading (HFT) system for GOLD/XAUUSD with Meta
 ```bash
 # Clone the repository
 git clone https://github.com/gustianaagg8217/Aventa_Inova_2026.git
+<<<<<<< HEAD
 cd Aventa_Inova_2027
+=======
+cd Aventa_Inova_2026
+>>>>>>> 293c1a76a5c96e1ffc07ef4a35a6a913cfb57e7d
 
 # Create virtual environment
 python -m venv venv
