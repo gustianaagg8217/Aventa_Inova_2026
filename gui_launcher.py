@@ -312,7 +312,7 @@ class MonitoringWorker(QThread):
                 # Use MT5 credentials from Configuration tab
                 source_kwargs = {
                     'mt5_path': self.config.mt5_path,
-                    'account': self.config.mt5_login,
+                    'login': self.config.mt5_login,
                     'password': self.config.mt5_password,
                     'server': self.config.mt5_server
                 }
