@@ -473,6 +473,17 @@ def run_training_flow(
     with open(run_path, 'w') as f:
         json.dump(run_summary, f, indent=2, default=str)
     logger.info(f"Saved run summary to {run_path}")
+    # Return a dictionary summary for callers that invoke this function programmatically
+    try:
+        return run_summary
+    except Exception:
+        # Fallback: ensure function does not crash when returning
+        return {
+            'model_type': model_type,
+            'model_name': model_name,
+            'metadata': metadata,
+            'history': history,
+        }
 
 
 # -------------------------
