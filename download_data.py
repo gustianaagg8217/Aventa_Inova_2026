@@ -2,138 +2,111 @@ import MetaTrader5 as mt5
 import pandas as pd
 from datetime import datetime, timedelta
 import os
+from pathlib import Path
+from typing import Optional
 
-# Connection settings
-account = 11260163
-password = 'Klapaucius82#'
-server = 'VantageInternational-Demo'
+# Default connection settings (can be overridden by caller)
+DEFAULT_ACCOUNT = None
+DEFAULT_PASSWORD = None
+DEFAULT_SERVER = None
 
-# Initialize and login
-print("=" * 60)
-print("GOLD DATA DOWNLOADER FOR HFT BACKTESTING")
-print("=" * 60)
-print("\nConnecting to MT5...")
 
-if not mt5.initialize("C:\\Program Files\\XM Global MT5\\terminal64.exe"):
-    print(f"❌ Initialize failed: {mt5.last_error()}")
-    exit()
+def download_symbol(symbol: str = 'XAUUSD', mt5_path: Optional[str] = None, account: Optional[int] = None,
+                    password: Optional[str] = None, server: Optional[str] = None, timeframe: str = 'M1',
+                    output_dir: str = 'data', strategies: Optional[list] = None) -> str:
+    """Download historical bars from MT5 for `symbol` and save to CSV in `output_dir`.
 
-if not mt5.login(account, password=password, server=server):
-    print(f"❌ Login failed: {mt5.last_error()}")
-    mt5.shutdown()
-    exit()
+    Returns path to saved CSV file.
+    """
+    # Map timeframe string to MT5 constant
+    tf_map = {
+        'M1': mt5.TIMEFRAME_M1,
+        'M5': mt5.TIMEFRAME_M5,
+        'M15': mt5.TIMEFRAME_M15,
+        'H1': mt5.TIMEFRAME_H1,
+        'D1': mt5.TIMEFRAME_D1,
+    }
+    tf = tf_map.get(timeframe, mt5.TIMEFRAME_M1)
 
-info = mt5.account_info()
-print(f"✅ Connected to MT5")
-print(f"   Account:  {info.login} ({info.name})")
-print(f"   Server: {info.server}")
+    # Use provided credentials or defaults
+    account = account or DEFAULT_ACCOUNT
+    password = password or DEFAULT_PASSWORD
+    server = server or DEFAULT_SERVER
 
-# Download settings
-symbol = 'XAUUSD'
-timeframe = mt5.TIMEFRAME_M1
-
-print(f"\n{'=' * 60}")
-print(f"DOWNLOAD CONFIGURATION")
-print(f"{'=' * 60}")
-print(f"Symbol: {symbol}")
-print(f"Timeframe: M1 (1 minute bars)")
-
-# Try multiple download strategies
-strategies = [
-    {"days": 90, "method": "range"},
-    {"days": 60, "method": "range"},
-    {"days": 30, "method": "range"},
-    {"count": 100000, "method": "count"},
-    {"count": 50000, "method": "count"},
-]
-
-rates = None
-
-for strategy in strategies:
-    if strategy["method"] == "range": 
-        days = strategy["days"]
-        end_date = datetime.now()
-        start_date = end_date - timedelta(days=days)
-        
-        print(f"\nTrying:  {days} days ({start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')})")
-        rates = mt5.copy_rates_range(symbol, timeframe, start_date, end_date)
-        
-    elif strategy["method"] == "count":
-        count = strategy["count"]
-        print(f"\nTrying: Last {count: ,} bars")
-        rates = mt5.copy_rates_from_pos(symbol, timeframe, 0, count)
-    
-    if rates is not None and len(rates) > 0:
-        print(f"✅ Success! Downloaded {len(rates):,} bars")
-        break
+    # Initialize MT5
+    if mt5_path:
+        ok = mt5.initialize(mt5_path)
     else:
-        error = mt5.last_error()
-        print(f"   Failed: {error}")
+        ok = mt5.initialize()
 
-if rates is None or len(rates) == 0:
-    print(f"\n❌ All download strategies failed!")
-    print(f"\nPossible issues:")
-    print(f"1.Broker doesn't provide enough historical data")
-    print(f"2.Symbol '{symbol}' has limited history")
-    print(f"3.Try downloading directly from MT5:")
-    print(f"   - Open {symbol} chart")
-    print(f"   - Press Home to scroll to oldest data")
-    print(f"   - Wait for data to load")
-    print(f"   - Try script again")
-    mt5.shutdown()
-    exit()
+    if not ok:
+        raise RuntimeError(f"MT5 initialize failed: {mt5.last_error()}")
 
-# Convert to DataFrame
-df = pd.DataFrame(rates)
-df['time'] = pd.to_datetime(df['time'], unit='s')
+    # Login if credentials provided
+    if account and password and server:
+        if not mt5.login(account, password=password, server=server):
+            mt5.shutdown()
+            raise RuntimeError(f"MT5 login failed: {mt5.last_error()}")
 
-# Create data folder if not exists
-os.makedirs('data', exist_ok=True)
+    # Default strategies
+    if strategies is None:
+        strategies = [
+            {"days": 90, "method": "range"},
+            {"days": 60, "method": "range"},
+            {"days": 30, "method": "range"},
+            {"count": 100000, "method": "count"},
+            {"count": 50000, "method": "count"},
+        ]
 
-# Calculate actual days
-days_actual = (df['time'].max() - df['time'].min()).days
+    rates = None
+    try:
+        for strategy in strategies:
+            if strategy.get("method") == "range":
+                days = strategy.get("days", 30)
+                end_date = datetime.now()
+                start_date = end_date - timedelta(days=days)
+                rates = mt5.copy_rates_range(symbol, tf, start_date, end_date)
+            elif strategy.get("method") == "count":
+                count = strategy.get("count", 50000)
+                rates = mt5.copy_rates_from_pos(symbol, tf, 0, count)
 
-# Save to CSV
-filename = f'data/{symbol.replace(".", "_")}_M1_{days_actual}days.csv'
-df.to_csv(filename, index=False)
+            if rates is not None and len(rates) > 0:
+                break
 
-print(f"\n{'=' * 60}")
-print(f"✅ DOWNLOAD SUCCESSFUL!")
-print(f"{'=' * 60}")
-print(f"Total bars:  {len(df):,}")
-print(f"From: {df.iloc[0]['time']}")
-print(f"To: {df.iloc[-1]['time']}")
-print(f"Actual period: {days_actual} days")
-print(f"Saved to: {filename}")
-print(f"File size: {os.path.getsize(filename) / 1024 / 1024:.2f} MB")
+        if rates is None or len(rates) == 0:
+            raise RuntimeError(f"Failed to download data for {symbol}: {mt5.last_error()}")
 
-# Statistics
-print(f"\n{'=' * 60}")
-print(f"DATA STATISTICS")
-print(f"{'=' * 60}")
-print(f"Price Range:")
-print(f"   High: {df['high'].max():.2f}")
-print(f"   Low: {df['low'].min():.2f}")
-print(f"   Range: {df['high'].max() - df['low'].min():.2f}")
-print(f"\nAverage Values:")
-print(f"   Open: {df['open'].mean():.2f}")
-print(f"   Volume: {df['tick_volume'].mean():.0f}")
-print(f"\nData Quality:")
-print(f"   Missing bars: {df.isnull().sum().sum()}")
-print(f"   Completeness: {(len(df) / (days_actual * 24 * 60)) * 100:.1f}%")
+        df = pd.DataFrame(rates)
+        df['time'] = pd.to_datetime(df['time'], unit='s')
 
-# Show sample data
-print(f"\n{'=' * 60}")
-print(f"SAMPLE DATA (First 5 rows)")
-print(f"{'=' * 60}")
-print(df[['time', 'open', 'high', 'low', 'close', 'tick_volume']].head().to_string(index=False))
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
 
-print(f"\n{'=' * 60}")
-print(f"SAMPLE DATA (Last 5 rows)")
-print(f"{'=' * 60}")
-print(df[['time', 'open', 'high', 'low', 'close', 'tick_volume']].tail().to_string(index=False))
+        days_actual = (df['time'].max() - df['time'].min()).days
+        filename = Path(output_dir) / f"{symbol.replace('.', '_')}_M1_{days_actual}days.csv"
+        df.to_csv(filename, index=False)
 
-mt5.shutdown()
-print(f"\n{'=' * 60}")
-print("✅ DONE! Data ready for backtesting.")
-print(f"{'=' * 60}")
+        return str(filename)
+
+    finally:
+        try:
+            mt5.shutdown()
+        except Exception:
+            pass
+
+
+if __name__ == '__main__':
+    # Simple CLI behavior when run standalone
+    import argparse
+
+    p = argparse.ArgumentParser()
+    p.add_argument('--symbol', default='XAUUSD')
+    p.add_argument('--mt5-path', default=None)
+    p.add_argument('--output-dir', default='data')
+    args = p.parse_args()
+
+    print('Starting download...')
+    try:
+        out = download_symbol(symbol=args.symbol, mt5_path=args.mt5_path, output_dir=args.output_dir)
+        print(f"Downloaded to: {out}")
+    except Exception as e:
+        print(f"Download failed: {e}")

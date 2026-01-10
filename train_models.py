@@ -342,6 +342,7 @@ def run_training_flow(
     data_dir: Path,
     output_dir: Path,
     model_type: str = "sklearn",
+    data_file: Optional[Path] = None,
     target_horizon: int = 1,
     n_estimators: int = 200,
     seq_len: int = 32,
@@ -350,7 +351,11 @@ def run_training_flow(
 ):
     data_dir = Path(data_dir)
     output_dir = Path(output_dir)
-    data_file = find_latest_data_file(data_dir)
+    if data_file:
+        data_file = Path(data_file)
+    else:
+        data_file = find_latest_data_file(data_dir)
+
     if data_file is None:
         logger.error(f"No data file found in {data_dir}. Please put CSV files like XAUUSD_M1_*.csv in that folder.")
         sys.exit(1)

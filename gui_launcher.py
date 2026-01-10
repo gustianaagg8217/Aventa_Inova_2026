@@ -78,6 +78,7 @@ class TradingConfig:
     
     # Data Settings
     data_dir: str = "data"
+    data_file: str = ""
     logs_dir: str = "logs"
     
     # Training Settings
@@ -148,11 +149,18 @@ class TrainingWorker(QThread):
                 'LSTM': 'lstm',
             }
             actual_model_type = model_type_map.get(self.config.model_type, 'sklearn')
+
+            # Optional specific data file set from UI
+            data_file = None
+            if getattr(self.config, 'data_file', None):
+                from pathlib import Path as _P
+                data_file = _P(self.config.data_file)
             
             results = run_training_flow(
                 data_dir=Path(self.config.data_dir),
                 output_dir=Path(self.config.model_dir),
                 model_type=actual_model_type,
+                data_file=data_file,
                 epochs=self.config.epochs
             )
             
@@ -162,6 +170,29 @@ class TrainingWorker(QThread):
             
             self.finished.emit(results)
         
+        except Exception as e:
+            self.error.emit(str(e))
+
+
+class DownloadWorker(QThread):
+    """Worker thread to download market data via download_data.py."""
+    progress = pyqtSignal(int)
+    status = pyqtSignal(str)
+    finished = pyqtSignal(str)
+    error = pyqtSignal(str)
+
+    def __init__(self, symbol: str, mt5_path: str, output_dir: str = 'data'):
+        super().__init__()
+        self.symbol = symbol
+        self.mt5_path = mt5_path
+        self.output_dir = output_dir
+
+    def run(self):
+        try:
+            self.status.emit(f"Downloading {self.symbol}...")
+            from download_data import download_symbol
+            out_path = download_symbol(symbol=self.symbol, mt5_path=self.mt5_path, output_dir=self.output_dir)
+            self.finished.emit(str(out_path))
         except Exception as e:
             self.error.emit(str(e))
 
@@ -520,6 +551,27 @@ class TrainingTab(QWidget):
         settings_group.setLayout(settings_form)
         layout.addWidget(settings_group)
         
+        # Data controls (download / select)
+        data_group = QGroupBox("Data")
+        data_layout = QHBoxLayout()
+        self.symbol_input = QLineEdit()
+        self.symbol_input.setText(self.config.symbol)
+        self.download_button = QPushButton("⬇️ Download Data")
+        self.download_button.clicked.connect(self.download_data)
+        data_layout.addWidget(QLabel("Symbol:"))
+        data_layout.addWidget(self.symbol_input)
+        data_layout.addWidget(self.download_button)
+        data_group.setLayout(data_layout)
+        layout.addWidget(data_group)
+        
+        file_layout = QHBoxLayout()
+        self.select_button = QPushButton("📂 Select Data File")
+        self.select_button.clicked.connect(self.select_data_file)
+        self.selected_file_label = QLabel(self.config.data_file or "No file selected")
+        file_layout.addWidget(self.select_button)
+        file_layout.addWidget(self.selected_file_label)
+        layout.addLayout(file_layout)
+        
         # Training Controls
         controls_layout = QHBoxLayout()
         
@@ -554,7 +606,43 @@ class TrainingTab(QWidget):
         layout.addWidget(self.results_text)
         
         self.setLayout(layout)
-    
+        self.selected_data_file = self.config.data_file or ""
+
+    def download_data(self):
+        """Download data for the symbol using MT5 settings."""
+        symbol = self.symbol_input.text().strip()
+        if not symbol:
+            QMessageBox.warning(self, "No Symbol", "Please enter a symbol to download (e.g. XAUUSD).")
+            return
+        self.download_button.setEnabled(False)
+        self.status_label.setText(f"Downloading {symbol}...")
+        self.dworker = DownloadWorker(symbol, self.config.mt5_path, output_dir=self.config.data_dir)
+        self.dworker.status.connect(self.update_status)
+        self.dworker.finished.connect(self.on_download_finished)
+        self.dworker.error.connect(self.on_download_error)
+        self.dworker.start()
+
+    def on_download_finished(self, filepath: str):
+        self.download_button.setEnabled(True)
+        self.status_label.setText("Download complete")
+        self.selected_data_file = filepath
+        self.selected_file_label.setText(filepath)
+        self.config.data_file = filepath
+        QMessageBox.information(self, "Download Complete", f"Data saved to {filepath}")
+
+    def on_download_error(self, error: str):
+        self.download_button.setEnabled(True)
+        self.status_label.setText("Download failed")
+        QMessageBox.critical(self, "Download Error", f"Failed to download data: {error}")
+
+    def select_data_file(self):
+        file_path, _ = QFileDialog.getOpenFileName(self, "Select Data File", str(Path(self.config.data_dir)), "CSV Files (*.csv)")
+        if file_path:
+            self.selected_data_file = file_path
+            self.selected_file_label.setText(file_path)
+            self.config.data_file = file_path
+            QMessageBox.information(self, "Data Selected", f"Selected file: {file_path}")
+
     def start_training(self):
         """Start training."""
         self.train_button.setEnabled(False)
