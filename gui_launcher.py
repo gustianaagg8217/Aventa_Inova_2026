@@ -308,6 +308,14 @@ class MonitoringWorker(QThread):
                 # Use data_file from config (set from UI CSV selector)
                 csv_file = getattr(self.config, 'data_file', None) or f"{self.config.data_dir}/XAUUSD_M1_59days.csv"
                 source_kwargs = {'data_file': csv_file}
+            elif self.config.data_source == 'mt5':
+                # Use MT5 credentials from Configuration tab
+                source_kwargs = {
+                    'mt5_path': self.config.mt5_path,
+                    'account': self.config.mt5_login,
+                    'password': self.config.mt5_password,
+                    'server': self.config.mt5_server
+                }
             
             monitor = RealTimeMonitor(
                 model_dir=self.config.model_dir,
@@ -987,6 +995,10 @@ class RealTimeTab(QWidget):
                 self.csv_selector.setEnabled(True)
                 self.load_csv_button.setEnabled(True)
                 return
+            self.config.data_file = self.selected_csv_file
+        elif self.config.data_source == 'mt5':
+            # When MT5 is selected, MT5 config should already be synced from Configuration tab
+            self.status_label.setText("MT5 source selected - using Configuration settings")
         
         self.worker = MonitoringWorker(self.config)
         self.worker.update.connect(self.on_update)
