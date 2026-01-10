@@ -209,6 +209,7 @@ if TORCH_AVAILABLE:
         best_val = float('inf')
         best_state = None
         history = {'train_mse': [], 'val_mse': []}
+
         for epoch in range(1, epochs + 1):
             model.train()
             train_losses = []
@@ -240,6 +241,15 @@ if TORCH_AVAILABLE:
                         arr = np.asarray(yb)
                     val_targets.append(arr.ravel())
 
+            if val_preds:
+                val_preds = np.concatenate(val_preds, axis=0)
+                val_targets = np.concatenate(val_targets, axis=0)
+                metrics = evaluate_regression(val_targets, val_preds)
+                val_mse = metrics['mse']
+            else:
+                metrics = {'mse': None, 'mae': None, 'r2': None}
+                val_mse = None
+
             history['train_mse'].append(avg_train)
             history['val_mse'].append(val_mse if val_mse is not None else float('nan'))
 
@@ -255,7 +265,7 @@ if TORCH_AVAILABLE:
 else:
     # placeholders if torch not available
     def train_lstm(*args, **kwargs):
-        raise RuntimeError("PyTorch is not available in this environment. Install torch to use LSTM model.")
+        raise RuntimeError("PyTorch is not available in this environmentXAUUSDInstall torch to use LSTM model.")
 
 
 # -------------------------
