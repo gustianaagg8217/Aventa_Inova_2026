@@ -8,11 +8,9 @@
 - ⚠️ Web dashboard (early version)
 # HFT GOLD Trading System - Production Ready
 
-<<<<<<< HEAD
 **Status**: Active Development (Production-Oriented Research)tambahkan:
 =======
 **Status**: Active Development (Production-Oriented Research)
->>>>>>> 293c1a76a5c96e1ffc07ef4a35a6a913cfb57e7d
 
 A state-of-the-art High-Frequency Trading (HFT) system for GOLD/XAUUSD with MetaTrader 5 integration. This system combines advanced market microstructure analysis, machine learning, and ultra-low latency execution for professional trading.
 
