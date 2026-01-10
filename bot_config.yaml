@@ -1,0 +1,31 @@
+# Auto Trading Bot Configuration
+
+mt5:
+  path: "C:\\Program Files\\XM Global MT5\\terminal64.exe"
+  account:  9234227
+  password: "Klapaucius8#"
+  server: "InstaForex-Server"
+  symbol: "GOLD.ls"
+
+strategy:
+  sma_fast:  5
+  sma_slow: 50
+  rsi_period: 20
+  atr_sl_multiplier: 2.5
+  atr_tp_multiplier:  4.0
+
+risk:
+  lot_size: 0.01
+  max_positions: 1
+  max_daily_trades:  15
+  max_daily_loss:  50.0
+  max_spread: 30
+
+sessions:
+  trade_london: true
+  trade_ny: true
+  trade_asian: false
+
+bot: 
+  check_interval: 60
+  data_bars: 100

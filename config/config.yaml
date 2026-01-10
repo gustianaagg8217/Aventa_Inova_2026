@@ -1,0 +1,50 @@
+# Main Configuration File
+system:
+  name: "HFT GOLD Trading System"
+  version: "1.0.0"
+  timezone: "UTC"
+  paper_trading: true
+  
+risk:
+  mode: "conservative"   # Pilih:  conservative / moderate / aggressive
+  emergency_stop_loss: 0.15   # Auto-stop jika drawdown 15%
+  max_daily_loss: 0.05        # Max loss 5% per hari
+  trailing_stop:  true
+  
+trading:
+  symbol: "XAUUSD"
+  timeframes: [1, 30, 300]  # 1s, 30s, 5m
+  trading_hours: 
+    start: "00:00"
+    end: "23:59"
+    timezone: "UTC"
+
+  
+timeframes:
+  tick_level:
+    enabled: true
+    window_seconds: 1
+  short_term:
+    enabled: true
+    window_seconds: 120
+    primary: true
+  medium_term:
+    enabled: true
+    window_seconds: 900
+    
+execution:
+  target_latency_ms: 10
+  connection_pool_size: 5
+  order_timeout_seconds: 30
+  max_retries: 3
+  retry_delay_ms: 100
+  
+monitoring:
+  log_level: "INFO"
+  performance_tracking: true
+  metrics_interval_seconds: 60
+  health_check_interval_seconds: 30
+  
+shutdown:
+  graceful_timeout_seconds: 30
+  force_close_positions: true

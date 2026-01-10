@@ -1,0 +1,59 @@
+# Main Configuration File
+system:
+  name: "HFT GOLD Trading System"
+  version: "1.0.0"
+  timezone: "UTC"
+  paper_trading: true
+  
+strategy:
+  name: "Optimized SMA-RSI Crossover"
+  sma_fast: 5
+  sma_slow: 50
+  rsi_period: 20
+  atr_stop_loss_multiplier: 2.5
+  atr_take_profit_multiplier: 4.0
+  
+risk:
+  mode: "conservative"
+  risk_per_trade: 0.005  # 0.5%
+  max_positions: 1
+  max_daily_loss: 0.03   # 3%
+  lot_size: 0.01
+  
+trading:
+  symbol: "XAUUSD"
+  timeframes: [1, 30, 300]  # 1s, 30s, 5m
+  trading_hours: 
+    start: "00:00"
+    end: "23:59"
+    timezone: "UTC"
+
+  
+timeframes:
+  tick_level:
+    enabled: true
+    window_seconds: 1
+  short_term:
+    enabled: true
+    window_seconds: 120
+    primary: true
+  medium_term:
+    enabled: true
+    window_seconds: 900
+    
+execution:
+  target_latency_ms: 10
+  connection_pool_size: 5
+  order_timeout_seconds: 30
+  max_retries: 3
+  retry_delay_ms: 100
+  
+monitoring:
+  log_level: "INFO"
+  performance_tracking: true
+  metrics_interval_seconds: 60
+  health_check_interval_seconds: 30
+  
+shutdown:
+  graceful_timeout_seconds: 30
+  force_close_positions: true

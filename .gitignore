@@ -1,0 +1,14 @@
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.log
+.env
+.idea/
+.vscode/
+dist/
+build/
+*.exe
+*.pkl
+*.h5
+*.onnx
