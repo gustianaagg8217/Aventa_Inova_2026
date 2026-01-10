@@ -52,7 +52,7 @@ except Exception:
 # -------------------------
 # Data / Feature utilities
 # -------------------------
-def find_latest_data_file(data_dir: Path, pattern: str = "XAUUSD_M1_*.csv") -> Optional[Path]:
+def find_latest_data_file(data_dir: Path, pattern: str = "BTCUSD_M1_*.csv") -> Optional[Path]:
     files = list(data_dir.glob(pattern))
     if not files:
         return None
