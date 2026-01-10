@@ -139,10 +139,20 @@ class TrainingWorker(QThread):
             self.status.emit("Training models...")
             self.progress.emit(30)
             
+            # Map UI model type to actual model type expected by train_models.py
+            model_type_map = {
+                'sklearn (RandomForest)': 'sklearn',
+                'lstm (PyTorch)': 'lstm',
+                'sklearn': 'sklearn',
+                'RandomForest': 'sklearn',  # Fallback for old config
+                'LSTM': 'lstm',
+            }
+            actual_model_type = model_type_map.get(self.config.model_type, 'sklearn')
+            
             results = run_training_flow(
                 data_dir=Path(self.config.data_dir),
                 output_dir=Path(self.config.model_dir),
-                model_type=self.config.model_type,
+                model_type=actual_model_type,
                 epochs=self.config.epochs
             )
             
@@ -497,8 +507,9 @@ class TrainingTab(QWidget):
         self.batch_size.setValue(self.config.batch_size)
         
         self.model_type = QComboBox()
-        self.model_type.addItems(['RandomForest', 'LSTM', 'Both'])
-        self.model_type.setCurrentText(self.config.model_type)
+        self.model_type.addItems(['sklearn (RandomForest)', 'lstm (PyTorch)', 'sklearn'])
+        default_model = 'sklearn (RandomForest)' if 'RandomForest' in self.config.model_type else self.config.model_type
+        self.model_type.setCurrentText(default_model)
         
         settings_form.addRow("Test Size:", self.test_size)
         settings_form.addRow("Validation Size:", self.validation_size)
@@ -550,6 +561,13 @@ class TrainingTab(QWidget):
         self.stop_button.setEnabled(True)
         self.progress_bar.setValue(0)
         self.results_text.clear()
+        
+        # Update config with current UI values
+        self.config.test_size = self.test_size.value()
+        self.config.validation_size = self.validation_size.value()
+        self.config.epochs = self.epochs.value()
+        self.config.batch_size = self.batch_size.value()
+        self.config.model_type = self.model_type.currentText()
         
         self.worker = TrainingWorker(self.config)
         self.worker.progress.connect(self.progress_bar.setValue)
