@@ -1261,7 +1261,136 @@ class LiveTradingTab(QWidget):
         self.config = config
         self.is_trading = False
         self.worker = None
+        self.telegram = None
+        self.last_margin_status = None
         self.setup_ui()
+        self._init_telegram()
+    
+    def _init_telegram(self):
+        """Initialize Telegram notifier."""
+        if self.config.telegram_enabled and self.config.telegram_bot_token:
+            try:
+                from telegram_notifier import TelegramNotifier
+                chat_ids = [c.strip() for c in self.config.telegram_chat_ids.split(',') if c.strip()]
+                if chat_ids:
+                    self.telegram = TelegramNotifier(self.config.telegram_bot_token, chat_ids)
+                    logger.info("✅ Telegram notifier initialized")
+            except Exception as e:
+                logger.warning(f"⚠️ Telegram initialization failed: {e}")
+                self.telegram = None
+    
+    def format_title(self, title: str) -> str:
+        """Format notification title with symbol."""
+        return f"{title} — <b>{self.config.symbol}</b>"
+    
+    def send_trade_open_notification(self, entry_type: str, entry_price: float, 
+                                     volume: float, pnl: float, margin: float,
+                                     balance: float, equity: float, free_margin: float,
+                                     is_manual: bool = False):
+        """Send trade open notification."""
+        if not self.telegram:
+            return
+        
+        try:
+            emoji = "🖐️" if is_manual else "🤖"
+            trade_label = "MANUAL TRADE OPEN" if is_manual else "AUTO TRADE OPEN"
+            title = self.format_title(f"{emoji} {trade_label}")
+            
+            message = f"""{title}
+
+Entry Type: <b>{entry_type}</b>
+Entry Price: {entry_price:.2f}
+Volume: {volume}
+
+P&L: ${pnl:.2f}
+Margin Level: {margin:.2f}%
+Balance: ${balance:.2f}
+Equity: ${equity:.2f}
+Free Margin: ${free_margin:.2f}
+Time: {datetime.now().strftime('%H:%M:%S')}"""
+            
+            self.telegram.send_message(message)
+        except Exception as e:
+            logger.warning(f"Failed to send trade notification: {e}")
+    
+    def send_trade_close_notification(self, entry_type: str, entry_price: float, 
+                                      exit_price: float, volume: float, pnl: float,
+                                      margin: float, balance: float, equity: float,
+                                      free_margin: float, is_manual: bool = False):
+        """Send trade close notification."""
+        if not self.telegram:
+            return
+        
+        try:
+            emoji = "🖐️" if is_manual else "🤖"
+            trade_label = "MANUAL CLOSED" if is_manual else "BOT CLOSED"
+            pnl_emoji = "✅" if pnl >= 0 else "❌"
+            
+            title = self.format_title(f"{emoji} {trade_label} {pnl_emoji}")
+            
+            message = f"""{title}
+
+Entry Type: <b>{entry_type}</b>
+Entry Price: {entry_price:.2f}
+Exit Price: {exit_price:.2f}
+Volume: {volume}
+
+P&L: ${pnl:.2f}
+Margin Level: {margin:.2f}%
+Balance: ${balance:.2f}
+Equity: ${equity:.2f}
+Free Margin: ${free_margin:.2f}
+Time: {datetime.now().strftime('%H:%M:%S')}"""
+            
+            self.telegram.send_message(message)
+        except Exception as e:
+            logger.warning(f"Failed to send close notification: {e}")
+    
+    def check_margin_status(self, margin: float, balance: float, equity: float, 
+                           free_margin: float):
+        """Check margin status and send alert if needed."""
+        if not self.telegram:
+            return
+        
+        try:
+            if margin <= 100:
+                status = "MARGIN_CALL"
+                emoji = "☠️"
+                label = "MARGIN CALL IMMINENT"
+            elif margin <= 120:
+                status = "CRITICAL"
+                emoji = "🔴"
+                label = "MARGIN CRITICAL"
+            elif margin <= 150:
+                status = "WARNING"
+                emoji = "🟠"
+                label = "MARGIN WARNING"
+            else:
+                status = "SAFE"
+                emoji = "🟢"
+                label = "MARGIN SAFE"
+            
+            # Only send if status changed
+            if self.last_margin_status == status:
+                return
+            
+            self.last_margin_status = status
+            
+            title = self.format_title(f"{emoji} {label}")
+            
+            message = f"""{title}
+
+Margin Level: {margin:.2f}%
+Balance: ${balance:.2f}
+Equity: ${equity:.2f}
+Free Margin: ${free_margin:.2f}
+
+⚠️ Immediate action recommended
+Time: {datetime.now().strftime('%H:%M:%S')}"""
+            
+            self.telegram.send_message(message)
+        except Exception as e:
+            logger.warning(f"Failed to send margin notification: {e}")
     
     def setup_ui(self):
         """Setup UI."""
@@ -1445,6 +1574,9 @@ class LiveTradingTab(QWidget):
         
         if reply == QMessageBox.StandardButton.Ok:
             try:
+                # Re-initialize telegram before trading
+                self._init_telegram()
+                
                 self.is_trading = True
                 self.start_trade_button.setEnabled(False)
                 self.stop_trade_button.setEnabled(True)
@@ -1458,12 +1590,8 @@ class LiveTradingTab(QWidget):
                 logger.info(f"{mode_text} started")
                 
                 # Send Telegram notification if enabled
-                if self.config.telegram_enabled and self.config.telegram_bot_token:
+                if self.telegram:
                     try:
-                        from telegram_notifier import TelegramNotifier
-                        chat_ids = [c.strip() for c in self.config.telegram_chat_ids.split(',') if c.strip()]
-                        notifier = TelegramNotifier(self.config.telegram_bot_token, chat_ids)
-                        
                         emoji = "💰" if self.current_trading_mode == "live" else "🧪"
                         message = f"{emoji} <b>TRADING STARTED</b>\n\n"
                         message += f"Mode: {mode_text}\n"
@@ -1471,7 +1599,7 @@ class LiveTradingTab(QWidget):
                         message += f"Lot Size: {self.config.lot_size}\n"
                         message += f"Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
                         
-                        notifier.send_message(message)
+                        self.telegram.send_message(message)
                     except Exception as e:
                         logger.warning(f"Failed to send Telegram notification: {e}")
                 
@@ -1506,17 +1634,13 @@ class LiveTradingTab(QWidget):
                 logger.info("Trading stopped")
                 
                 # Send Telegram notification if enabled
-                if self.config.telegram_enabled and self.config.telegram_bot_token:
+                if self.telegram:
                     try:
-                        from telegram_notifier import TelegramNotifier
-                        chat_ids = [c.strip() for c in self.config.telegram_chat_ids.split(',') if c.strip()]
-                        notifier = TelegramNotifier(self.config.telegram_bot_token, chat_ids)
-                        
                         message = f"⏹️ <b>TRADING STOPPED</b>\n\n"
                         message += f"Symbol: <b>{self.config.symbol}</b>\n"
                         message += f"Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
                         
-                        notifier.send_message(message)
+                        self.telegram.send_message(message)
                     except Exception as e:
                         logger.warning(f"Failed to send Telegram notification: {e}")
                 
