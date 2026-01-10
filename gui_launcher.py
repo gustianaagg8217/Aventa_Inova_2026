@@ -23,7 +23,7 @@ from typing import Dict, Optional, Any
 
 import numpy as np
 import pandas as pd
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QThread, QSize
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QThread, QSize, QObject
 from PyQt6.QtGui import QFont, QIcon, QColor
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -100,10 +100,14 @@ class TradingConfig:
         return TradingConfig(**data)
 
 
-class LogHandler(logging.Handler):
+class LogHandler(logging.Handler, QObject):
     """Custom logging handler that emits signals."""
     
     log_signal = pyqtSignal(str)
+    
+    def __init__(self):
+        logging.Handler.__init__(self)
+        QObject.__init__(self)
     
     def emit(self, record: logging.LogRecord):
         """Emit log record."""
@@ -130,13 +134,16 @@ class TrainingWorker(QThread):
             
             # Import and run training
             from train_models import run_training_flow
+            from pathlib import Path
             
             self.status.emit("Training models...")
             self.progress.emit(30)
             
             results = run_training_flow(
-                data_file=f"{self.config.data_dir}/XAUUSD_M1_59days.csv",
-                test_size=self.config.test_size
+                data_dir=Path(self.config.data_dir),
+                output_dir=Path(self.config.model_dir),
+                model_type=self.config.model_type,
+                epochs=self.config.epochs
             )
             
             self.progress.emit(90)
@@ -1026,6 +1033,201 @@ class RiskManagementTab(QWidget):
             self.calculated_lot.setText("Invalid inputs")
 
 
+class LiveTradingTab(QWidget):
+    """Live trading execution tab."""
+    
+    def __init__(self, config: TradingConfig):
+        super().__init__()
+        self.config = config
+        self.is_trading = False
+        self.worker = None
+        self.setup_ui()
+    
+    def setup_ui(self):
+        """Setup UI."""
+        layout = QVBoxLayout()
+        
+        # Trading Status
+        status_group = QGroupBox("Trading Status")
+        status_form = QFormLayout()
+        
+        self.trading_status = QLabel("⚫ STOPPED")
+        self.trading_status.setStyleSheet("color: red; font-weight: bold; font-size: 14px;")
+        
+        self.trading_mode = QLabel("Paper Trading (Demo)")
+        
+        status_form.addRow("Status:", self.trading_status)
+        status_form.addRow("Mode:", self.trading_mode)
+        status_group.setLayout(status_form)
+        layout.addWidget(status_group)
+        
+        # Trading Controls
+        controls_layout = QHBoxLayout()
+        
+        self.start_trade_button = QPushButton("▶ START TRADING")
+        self.start_trade_button.setStyleSheet("""
+            background-color: #4CAF50;
+            color: white;
+            font-weight: bold;
+            font-size: 14px;
+            padding: 12px;
+            border-radius: 4px;
+        """)
+        self.start_trade_button.setMinimumHeight(50)
+        self.start_trade_button.clicked.connect(self.start_trading)
+        
+        self.stop_trade_button = QPushButton("⏹ STOP TRADING")
+        self.stop_trade_button.setEnabled(False)
+        self.stop_trade_button.setStyleSheet("""
+            background-color: #f44336;
+            color: white;
+            font-weight: bold;
+            font-size: 14px;
+            padding: 12px;
+            border-radius: 4px;
+        """)
+        self.stop_trade_button.setMinimumHeight(50)
+        self.stop_trade_button.clicked.connect(self.stop_trading)
+        
+        controls_layout.addWidget(self.start_trade_button)
+        controls_layout.addWidget(self.stop_trade_button)
+        layout.addLayout(controls_layout)
+        
+        # Real-time Metrics
+        metrics_group = QGroupBox("Real-time Trading Metrics")
+        metrics_form = QFormLayout()
+        
+        self.current_price = QLabel("--")
+        self.profit_loss = QLabel("$0.00")
+        self.profit_loss.setStyleSheet("color: black;")
+        
+        self.trades_count = QLabel("0")
+        self.winning_trades = QLabel("0")
+        self.losing_trades = QLabel("0")
+        self.win_rate = QLabel("0%")
+        
+        self.open_positions = QLabel("0")
+        self.total_volume = QLabel("0.0 lots")
+        
+        metrics_form.addRow("Current Price:", self.current_price)
+        metrics_form.addRow("Profit/Loss:", self.profit_loss)
+        metrics_form.addRow("─" * 30, QLabel(""))  # Separator
+        metrics_form.addRow("Total Trades:", self.trades_count)
+        metrics_form.addRow("Winning Trades:", self.winning_trades)
+        metrics_form.addRow("Losing Trades:", self.losing_trades)
+        metrics_form.addRow("Win Rate:", self.win_rate)
+        metrics_form.addRow("─" * 30, QLabel(""))  # Separator
+        metrics_form.addRow("Open Positions:", self.open_positions)
+        metrics_form.addRow("Total Volume:", self.total_volume)
+        
+        metrics_group.setLayout(metrics_form)
+        layout.addWidget(metrics_group)
+        
+        # Active Positions
+        self.positions_table = QTableWidget()
+        self.positions_table.setColumnCount(7)
+        self.positions_table.setHorizontalHeaderLabels([
+            'Position ID', 'Symbol', 'Type', 'Entry Price', 'Current Price', 'P&L', 'Size'
+        ])
+        self.positions_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        
+        layout.addWidget(QLabel("Active Positions:"))
+        layout.addWidget(self.positions_table)
+        
+        # Trading Log
+        self.trade_log = QPlainTextEdit()
+        self.trade_log.setReadOnly(True)
+        self.trade_log.setMaximumHeight(150)
+        
+        layout.addWidget(QLabel("Trading Log:"))
+        layout.addWidget(self.trade_log)
+        
+        layout.addStretch()
+        self.setLayout(layout)
+    
+    def start_trading(self):
+        """Start live trading."""
+        reply = QMessageBox.question(
+            self,
+            "Start Trading",
+            "Start live trading?\n\n⚠️ Make sure all settings are correct!",
+            QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel
+        )
+        
+        if reply == QMessageBox.StandardButton.Ok:
+            try:
+                self.is_trading = True
+                self.start_trade_button.setEnabled(False)
+                self.stop_trade_button.setEnabled(True)
+                
+                self.trading_status.setText("🟢 RUNNING")
+                self.trading_status.setStyleSheet("color: green; font-weight: bold; font-size: 14px;")
+                
+                self.log_trade("✓ Trading started successfully")
+                logger.info("Live trading started")
+                
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Failed to start trading: {e}")
+                self.is_trading = False
+                self.start_trade_button.setEnabled(True)
+                self.stop_trade_button.setEnabled(False)
+                logger.error(f"Failed to start trading: {e}")
+    
+    def stop_trading(self):
+        """Stop live trading."""
+        reply = QMessageBox.question(
+            self,
+            "Stop Trading",
+            "Stop live trading?\n\nAll open positions will be closed.",
+            QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel
+        )
+        
+        if reply == QMessageBox.StandardButton.Ok:
+            try:
+                self.is_trading = False
+                self.start_trade_button.setEnabled(True)
+                self.stop_trade_button.setEnabled(False)
+                
+                self.trading_status.setText("⚫ STOPPED")
+                self.trading_status.setStyleSheet("color: red; font-weight: bold; font-size: 14px;")
+                
+                self.log_trade("✓ Trading stopped")
+                logger.info("Live trading stopped")
+                
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Failed to stop trading: {e}")
+                logger.error(f"Failed to stop trading: {e}")
+    
+    def log_trade(self, message: str):
+        """Log trading activity."""
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        self.trade_log.appendPlainText(f"[{timestamp}] {message}")
+    
+    def update_metrics(self, metrics: dict):
+        """Update trading metrics."""
+        if 'price' in metrics:
+            self.current_price.setText(f"${metrics['price']:.2f}")
+        if 'pnl' in metrics:
+            pnl = metrics['pnl']
+            self.profit_loss.setText(f"${pnl:.2f}")
+            if pnl > 0:
+                self.profit_loss.setStyleSheet("color: green; font-weight: bold;")
+            elif pnl < 0:
+                self.profit_loss.setStyleSheet("color: red; font-weight: bold;")
+        if 'trades' in metrics:
+            self.trades_count.setText(str(metrics['trades']))
+        if 'wins' in metrics:
+            self.winning_trades.setText(str(metrics['wins']))
+        if 'losses' in metrics:
+            self.losing_trades.setText(str(metrics['losses']))
+        if 'win_rate' in metrics:
+            self.win_rate.setText(f"{metrics['win_rate']:.1f}%")
+        if 'positions' in metrics:
+            self.open_positions.setText(str(metrics['positions']))
+        if 'volume' in metrics:
+            self.total_volume.setText(f"{metrics['volume']:.2f} lots")
+
+
 class LogsTab(QWidget):
     """Logging and activity tracking tab."""
     
@@ -1135,6 +1337,7 @@ class MainWindow(QMainWindow):
         self.training_tab = TrainingTab(self.config)
         self.backtest_tab = BacktestTab(self.config)
         self.realtime_tab = RealTimeTab(self.config)
+        self.live_trading_tab = LiveTradingTab(self.config)
         self.performance_tab = PerformanceTab(self.config)
         self.risk_tab = RiskManagementTab(self.config)
         self.logs_tab = LogsTab()
@@ -1144,6 +1347,7 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.training_tab, "🎓 Training")
         self.tabs.addTab(self.backtest_tab, "📊 Backtest")
         self.tabs.addTab(self.realtime_tab, "🔴 Real-time")
+        self.tabs.addTab(self.live_trading_tab, "🚀 Live Trading")
         self.tabs.addTab(self.performance_tab, "💹 Performance")
         self.tabs.addTab(self.risk_tab, "⚠️ Risk Management")
         self.tabs.addTab(self.logs_tab, "📋 Logs")
@@ -1278,6 +1482,7 @@ class MainWindow(QMainWindow):
         self.training_tab = TrainingTab(self.config)
         self.backtest_tab = BacktestTab(self.config)
         self.realtime_tab = RealTimeTab(self.config)
+        self.live_trading_tab = LiveTradingTab(self.config)
         self.performance_tab = PerformanceTab(self.config)
         self.risk_tab = RiskManagementTab(self.config)
         
@@ -1286,6 +1491,7 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.training_tab, "🎓 Training")
         self.tabs.addTab(self.backtest_tab, "📊 Backtest")
         self.tabs.addTab(self.realtime_tab, "🔴 Real-time")
+        self.tabs.addTab(self.live_trading_tab, "🚀 Live Trading")
         self.tabs.addTab(self.performance_tab, "💹 Performance")
         self.tabs.addTab(self.risk_tab, "⚠️ Risk Management")
         self.tabs.addTab(self.logs_tab, "📋 Logs")
