@@ -29,7 +29,7 @@ print(f"   Account:  {info.login} ({info.name})")
 print(f"   Server: {info.server}")
 
 # Download settings
-symbol = 'BTCUSD'
+symbol = 'XAUUSD'
 timeframe = mt5.TIMEFRAME_M1
 
 print(f"\n{'=' * 60}")
