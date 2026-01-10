@@ -305,7 +305,9 @@ class MonitoringWorker(QThread):
             
             source_kwargs = {}
             if self.config.data_source == 'csv':
-                source_kwargs = {'data_file': f"{self.config.data_dir}/XAUUSD_M1_59days.csv"}
+                # Use data_file from config (set from UI CSV selector)
+                csv_file = getattr(self.config, 'data_file', None) or f"{self.config.data_dir}/XAUUSD_M1_59days.csv"
+                source_kwargs = {'data_file': csv_file}
             
             monitor = RealTimeMonitor(
                 model_dir=self.config.model_dir,
@@ -836,16 +838,33 @@ class RealTimeTab(QWidget):
         self.source = QComboBox()
         self.source.addItems(['csv', 'mt5', 'yfinance'])
         self.source.setCurrentText(self.config.data_source)
+        self.source.currentTextChanged.connect(self.on_data_source_changed)
         
         self.interval = QDoubleSpinBox()
         self.interval.setDecimals(1)
         self.interval.setMinimum(0.1)
         self.interval.setValue(self.config.monitoring_interval)
         
+        # CSV file selector (shown only when csv source is selected)
+        self.csv_file_layout = QHBoxLayout()
+        self.csv_label = QLabel("CSV File:")
+        self.csv_selector = QComboBox()
+        self.load_csv_button = QPushButton("🔄 Reload")
+        self.load_csv_button.clicked.connect(self.load_csv_files)
+        self.csv_file_layout.addWidget(self.csv_label)
+        self.csv_file_layout.addWidget(self.csv_selector)
+        self.csv_file_layout.addWidget(self.load_csv_button)
+        
+        # Hide CSV selector initially if not set to csv
+        self.show_csv_selector(self.config.data_source == 'csv')
+        
         settings_form.addRow("Data Source:", self.source)
         settings_form.addRow("Update Interval (s):", self.interval)
         settings_group.setLayout(settings_form)
         layout.addWidget(settings_group)
+        
+        # Add CSV selector row
+        layout.addLayout(self.csv_file_layout)
         
         # Monitoring Controls
         controls_layout = QHBoxLayout()
@@ -902,6 +921,47 @@ class RealTimeTab(QWidget):
         
         self.setLayout(layout)
         self.signal_counts = {'BUY': 0, 'SELL': 0, 'HOLD': 0}
+        self.selected_csv_file = ""
+        
+        # Load CSV files on startup if csv is the source
+        if self.config.data_source == 'csv':
+            self.load_csv_files()
+    
+    def show_csv_selector(self, show: bool):
+        """Show or hide CSV file selector."""
+        self.csv_label.setVisible(show)
+        self.csv_selector.setVisible(show)
+        self.load_csv_button.setVisible(show)
+    
+    def on_data_source_changed(self, source: str):
+        """Handle data source change."""
+        if source == 'csv':
+            self.show_csv_selector(True)
+            self.load_csv_files()
+        else:
+            self.show_csv_selector(False)
+    
+    def load_csv_files(self):
+        """Load available CSV files from data directory."""
+        self.csv_selector.clear()
+        try:
+            from pathlib import Path
+            data_path = Path(self.config.data_dir)
+            if data_path.exists():
+                csv_files = list(data_path.glob('*.csv'))
+                if csv_files:
+                    for csv_file in sorted(csv_files):
+                        self.csv_selector.addItem(csv_file.name, str(csv_file))
+                    self.status_label.setText(f"Loaded {len(csv_files)} CSV file(s)")
+                else:
+                    self.csv_selector.addItem("(No CSV files found)")
+                    self.status_label.setText("No CSV files in data directory")
+            else:
+                self.csv_selector.addItem("(Data directory not found)")
+                self.status_label.setText("Data directory does not exist")
+        except Exception as e:
+            self.csv_selector.addItem(f"(Error: {e})")
+            self.status_label.setText(f"Error loading CSV files: {e}")
     
     def start_monitoring(self):
         """Start monitoring."""
@@ -909,9 +969,24 @@ class RealTimeTab(QWidget):
         self.stop_button.setEnabled(True)
         self.source.setEnabled(False)
         self.interval.setEnabled(False)
+        self.csv_selector.setEnabled(False)
+        self.load_csv_button.setEnabled(False)
         
         self.config.data_source = self.source.currentText()
         self.config.monitoring_interval = self.interval.value()
+        
+        # If CSV source, get selected file
+        if self.config.data_source == 'csv':
+            self.selected_csv_file = self.csv_selector.currentData()
+            if not self.selected_csv_file or self.selected_csv_file == "":
+                QMessageBox.warning(self, "No CSV Selected", "Please select a CSV file to monitor.")
+                self.start_button.setEnabled(True)
+                self.stop_button.setEnabled(False)
+                self.source.setEnabled(True)
+                self.interval.setEnabled(True)
+                self.csv_selector.setEnabled(True)
+                self.load_csv_button.setEnabled(True)
+                return
         
         self.worker = MonitoringWorker(self.config)
         self.worker.update.connect(self.on_update)
@@ -929,6 +1004,8 @@ class RealTimeTab(QWidget):
         self.stop_button.setEnabled(False)
         self.source.setEnabled(True)
         self.interval.setEnabled(True)
+        self.csv_selector.setEnabled(True)
+        self.load_csv_button.setEnabled(True)
         self.status_label.setText("Stopped")
     
     def update_status(self, status: str):
