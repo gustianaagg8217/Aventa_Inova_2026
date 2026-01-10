@@ -44,6 +44,7 @@ logging.basicConfig(
 logger = logging.getLogger('GUI')
 
 
+# Data model for all trading configuration settings
 @dataclass
 class TradingConfig:
     """Configuration for trading system."""
@@ -96,16 +97,19 @@ class TradingConfig:
     telegram_bot_token: str = ""
     telegram_chat_ids: str = ""  # comma-separated chat IDs
     
+    # Convert config dataclass to dictionary format
     def to_dict(self) -> Dict:
         """Convert to dictionary."""
         return asdict(self)
     
+    # Create config instance from dictionary
     @staticmethod
     def from_dict(data: Dict) -> 'TradingConfig':
         """Create from dictionary."""
         return TradingConfig(**data)
 
 
+# Logging handler that bridges log records to PyQt signals
 class LogHandler(logging.Handler, QObject):
     """Custom logging handler that emits signals."""
     
@@ -121,6 +125,7 @@ class LogHandler(logging.Handler, QObject):
         self.log_signal.emit(msg)
 
 
+# Background thread worker for model training
 class TrainingWorker(QThread):
     """Worker thread for training."""
     progress = pyqtSignal(int)
@@ -179,6 +184,7 @@ class TrainingWorker(QThread):
             self.error.emit(str(e))
 
 
+# Background thread worker for downloading market data from MT5
 class DownloadWorker(QThread):
     """Worker thread to download market data via download_data.py."""
     progress = pyqtSignal(int)
@@ -202,6 +208,7 @@ class DownloadWorker(QThread):
             self.error.emit(str(e))
 
 
+# Background thread worker for backtesting models
 class BacktestWorker(QThread):
     """Worker thread for backtesting."""
     progress = pyqtSignal(int)
@@ -290,6 +297,7 @@ class BacktestWorker(QThread):
             self.error.emit(str(e))
 
 
+# Background thread worker for real-time market monitoring
 class MonitoringWorker(QThread):
     """Worker thread for real-time monitoring."""
     update = pyqtSignal(dict)
@@ -352,6 +360,73 @@ class MonitoringWorker(QThread):
         self.running = False
 
 
+# Background thread worker for running AutoTradingBot
+class BotWorker(QThread):
+    """Worker to run AutoTradingBot in background thread."""
+    status = pyqtSignal(str)
+    error = pyqtSignal(str)
+    finished = pyqtSignal()
+
+    def __init__(self, config: TradingConfig):
+        super().__init__()
+        self.config = config
+        self.bot = None
+
+    def run(self):
+        try:
+            # Import the bot and map GUI config to bot config
+            from auto_trading import AutoTradingBot, BotConfig as ATBotConfig
+            from telegram_notifier import TelegramNotifier
+
+            at_conf = ATBotConfig()
+            at_conf.MT5_PATH = self.config.mt5_path
+            at_conf.ACCOUNT = int(self.config.mt5_login)
+            at_conf.PASSWORD = self.config.mt5_password
+            at_conf.SERVER = self.config.mt5_server
+            at_conf.SYMBOL = self.config.symbol
+            at_conf.LOT_SIZE = self.config.lot_size
+
+            # Telegram mapping
+            at_conf.TELEGRAM_ENABLED = bool(self.config.telegram_enabled)
+            at_conf.TELEGRAM_BOT_TOKEN = self.config.telegram_bot_token
+            at_conf.TELEGRAM_CHAT_ID = [c.strip() for c in (self.config.telegram_chat_ids or "").split(',') if c.strip()]
+
+            # Instantiate bot and inject config
+            bot = AutoTradingBot()
+            bot.config = at_conf
+
+            # Re-init telegram notifier if enabled
+            if at_conf.TELEGRAM_ENABLED:
+                try:
+                    bot.telegram = TelegramNotifier(at_conf.TELEGRAM_BOT_TOKEN, at_conf.TELEGRAM_CHAT_ID)
+                except Exception:
+                    bot.telegram = None
+            else:
+                bot.telegram = None
+
+            self.bot = bot
+            self.status.emit("AutoTradingBot starting...")
+            bot.run()
+
+        except Exception as e:
+            self.error.emit(str(e))
+        finally:
+            self.finished.emit()
+
+    def stop(self):
+        """Request bot stop and disconnect MT5."""
+        try:
+            if self.bot:
+                self.bot.running = False
+                try:
+                    self.bot.disconnect_mt5()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+
+# Tab for managing MT5, trading, indicator, and Telegram settings
 class ConfigurationTab(QWidget):
     """Configuration management tab."""
     
@@ -466,6 +541,7 @@ class ConfigurationTab(QWidget):
         return self.config
 
 
+# Tab for configuring SMA, RSI, and ATR indicator parameters
 class IndicatorTab(QWidget):
     """Technical indicator parameters tab."""
     
@@ -536,6 +612,7 @@ class IndicatorTab(QWidget):
         return self.config
 
 
+# Tab for model training with data selection and progress monitoring
 class TrainingTab(QWidget):
     """Model training tab."""
     
@@ -735,6 +812,7 @@ class TrainingTab(QWidget):
         QMessageBox.critical(self, "Training Error", f"Training failed: {error}")
 
 
+# Tab for backtesting models with performance metrics
 class BacktestTab(QWidget):
     """Backtesting tab."""
     
@@ -1602,6 +1680,17 @@ Time: {datetime.now().strftime('%H:%M:%S')}"""
                         self.telegram.send_message(message)
                     except Exception as e:
                         logger.warning(f"Failed to send Telegram notification: {e}")
+                # Start AutoTradingBot in background if enabled
+                try:
+                    from PyQt6.QtCore import QTimer
+                    self.bot_worker = BotWorker(self.config)
+                    self.bot_worker.status.connect(self.update_status)
+                    self.bot_worker.error.connect(lambda e: logger.error(f"Bot error: {e}"))
+                    self.bot_worker.finished.connect(lambda: logger.info("Bot worker finished"))
+                    self.bot_worker.start()
+                    logger.info("AutoTradingBot launched in background thread")
+                except Exception as e:
+                    logger.error(f"Failed to start AutoTradingBot: {e}")
                 
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Gagal memulai trading: {e}")
@@ -1643,7 +1732,15 @@ Time: {datetime.now().strftime('%H:%M:%S')}"""
                         self.telegram.send_message(message)
                     except Exception as e:
                         logger.warning(f"Failed to send Telegram notification: {e}")
-                
+                # Stop AutoTradingBot if running
+                try:
+                    if hasattr(self, 'bot_worker') and self.bot_worker is not None:
+                        self.bot_worker.stop()
+                        self.bot_worker.wait(3000)
+                        logger.info("AutoTradingBot stop requested")
+                        self.bot_worker = None
+                except Exception as e:
+                    logger.error(f"Error stopping bot worker: {e}")
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Gagal menghentikan trading: {e}")
                 logger.error(f"Failed to stop trading: {e}")
@@ -1758,6 +1855,7 @@ class LogsTab(QWidget):
             QMessageBox.information(self, "Export Complete", f"Logs exported to {file_path}")
 
 
+# Main application window with tabbed interface for trading system
 class MainWindow(QMainWindow):
     """Main application window."""
     

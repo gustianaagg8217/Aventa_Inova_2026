@@ -309,40 +309,65 @@ class AutoTradingBot:
         return True, spread
     
     def detect_signal(self, df):
-        """Detect trading signal"""
+        """Detect trading signal using both ML predictions and technical indicators"""
         if len(df) < 2:
             return None
         
         current = df.iloc[-1]
         previous = df.iloc[-2]
         
-        # LONG signal:  Fast SMA crosses above Slow SMA + RSI < 70
-        if (previous['sma_fast'] <= previous['sma_slow'] and 
-            current['sma_fast'] > current['sma_slow'] and 
-            current['rsi'] < 70):
+        # Try to load ML model predictions for additional signal confirmation
+        ml_prediction = None
+        try:
+            from inference import ModelPredictor
+            from pathlib import Path
             
-            return {
-                'type':  'LONG',
-                'entry':  current['close'],
-                'sl': current['close'] - (current['atr'] * self.config.ATR_SL_MULT),
-                'tp': current['close'] + (current['atr'] * self.config.ATR_TP_MULT),
-                'atr': current['atr'],
-                'rsi': current['rsi']
-            }
+            predictor = ModelPredictor(model_dir=str(Path('models')))
+            result = predictor.predict(df.tail(10))  # Use last 10 bars for prediction
+            if result and 'predictions' in result and len(result['predictions']) > 0:
+                ml_prediction = result['predictions'][-1]  # Last prediction
+        except Exception as e:
+            pass  # Continue with TA signals only if ML model fails
         
-        # SHORT signal: Fast SMA crosses below Slow SMA + RSI > 30
-        elif (previous['sma_fast'] >= previous['sma_slow'] and 
-              current['sma_fast'] < current['sma_slow'] and 
-              current['rsi'] > 30):
-            
-            return {
-                'type': 'SHORT',
-                'entry':  current['close'],
-                'sl': current['close'] + (current['atr'] * self.config.ATR_SL_MULT),
-                'tp': current['close'] - (current['atr'] * self.config.ATR_TP_MULT),
-                'atr':  current['atr'],
-                'rsi': current['rsi']
-            }
+        # Technical Analysis: LONG signal (SMA crossover + RSI confirmation)
+        ta_long_signal = (previous['sma_fast'] <= previous['sma_slow'] and 
+                         current['sma_fast'] > current['sma_slow'] and 
+                         current['rsi'] < 70)
+        
+        # Technical Analysis: SHORT signal (SMA crossover + RSI confirmation)
+        ta_short_signal = (previous['sma_fast'] >= previous['sma_slow'] and 
+                          current['sma_fast'] < current['sma_slow'] and 
+                          current['rsi'] > 30)
+        
+        # Combine ML + TA signals
+        # If ML model available: require both TA crossover AND positive ML prediction
+        # If no ML model: use TA signals only
+        
+        if ta_long_signal:
+            ml_confirms_long = (ml_prediction is None) or (ml_prediction > 0.0001)  # TA-only OR (TA + ML bullish)
+            if ml_confirms_long:
+                return {
+                    'type':  'LONG',
+                    'entry':  current['close'],
+                    'sl': current['close'] - (current['atr'] * self.config.ATR_SL_MULT),
+                    'tp': current['close'] + (current['atr'] * self.config.ATR_TP_MULT),
+                    'atr': current['atr'],
+                    'rsi': current['rsi'],
+                    'ml_score': ml_prediction if ml_prediction else 0.0
+                }
+        
+        if ta_short_signal:
+            ml_confirms_short = (ml_prediction is None) or (ml_prediction < -0.0001)  # TA-only OR (TA + ML bearish)
+            if ml_confirms_short:
+                return {
+                    'type': 'SHORT',
+                    'entry':  current['close'],
+                    'sl': current['close'] + (current['atr'] * self.config.ATR_SL_MULT),
+                    'tp': current['close'] - (current['atr'] * self.config.ATR_TP_MULT),
+                    'atr':  current['atr'],
+                    'rsi': current['rsi'],
+                    'ml_score': ml_prediction if ml_prediction else 0.0
+                }
         
         return None
     
@@ -399,6 +424,8 @@ class AutoTradingBot:
         print(f"Order ID:       {result.order}")
         print(f"RSI:           {signal['rsi']:.1f}")
         print(f"ATR:           {signal['atr']:.2f}")
+        if 'ml_score' in signal:
+            print(f"ML Score:      {signal['ml_score']:.6f}")
         print(f"{'='*80}")
         
         # 🆕 FIXED: Track both order AND position tickets
