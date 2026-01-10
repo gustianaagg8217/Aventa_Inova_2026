@@ -134,7 +134,9 @@ def build_features_and_target(df: pd.DataFrame, target_horizon: int = 1) -> Tupl
 def train_sklearn_model(X_train, y_train, X_val, y_val, n_estimators: int = 200) -> Tuple[RandomForestRegressor, Dict]:
     logger.info("Training RandomForestRegressor (baseline)...")
     model = RandomForestRegressor(n_estimators=n_estimators, n_jobs=-1, random_state=42)
+    logger.info(f"Fitting model on {len(X_train)} samples...")
     model.fit(X_train, y_train.ravel())
+    logger.info("Model fitting complete. Predicting validation set...")
     preds_val = model.predict(X_val)
     metrics = evaluate_regression(y_val, preds_val)
     logger.info(f"Validation metrics: {metrics}")
@@ -197,9 +199,10 @@ if TORCH_AVAILABLE:
 
         best_val = float('inf')
         for epoch in range(1, epochs + 1):
+            logger.info(f"Starting epoch {epoch}/{epochs}...")
             model.train()
             train_losses = []
-            for xb, yb in train_loader:
+            for batch_idx, (xb, yb) in enumerate(train_loader):
                 xb = xb.to(device)
                 yb = yb.to(device)
                 pred = model(xb)
@@ -208,6 +211,8 @@ if TORCH_AVAILABLE:
                 loss.backward()
                 opt.step()
                 train_losses.append(loss.item())
+                if (batch_idx + 1) % 10 == 0 or (batch_idx + 1) == len(train_loader):
+                    logger.debug(f"Epoch {epoch} Batch {batch_idx+1}/{len(train_loader)} Loss: {loss.item():.6f}")
             avg_train = float(np.mean(train_losses)) if train_losses else 0.0
 
             # validation
@@ -234,6 +239,7 @@ if TORCH_AVAILABLE:
                 best_state = model.state_dict()
 
         # restore best
+        logger.info("Restoring best model state from training.")
         model.load_state_dict(best_state)
         return model, metrics
 else:
@@ -311,12 +317,16 @@ def run_training_flow(
 
     logger.info(f"Loading data from {data_file}")
     df = load_data(data_file)
+    logger.info(f"Loaded {len(df)} rows from data file.")
     df = add_technical_features(df)
+    logger.info(f"Technical features added. Data now has {df.shape[1]} columns.")
     X_df, y_ser = build_features_and_target(df, target_horizon=target_horizon)
+    logger.info(f"Feature matrix shape: {X_df.shape}, Target shape: {y_ser.shape}")
     if len(X_df) < 200:
         logger.warning("Too few rows after feature generation; results may be poor.")
 
     ds = prepare_datasets(X_df, y_ser)
+    logger.info("Datasets prepared and scaled.")
     X_train = ds['X_train']
     X_val = ds['X_val']
     X_test = ds['X_test']
