@@ -1047,6 +1047,19 @@ class LiveTradingTab(QWidget):
         """Setup UI."""
         layout = QVBoxLayout()
         
+        # Trading Mode Selection
+        mode_group = QGroupBox("Trading Mode")
+        mode_form = QFormLayout()
+        
+        self.mode_selector = QComboBox()
+        self.mode_selector.addItems(['🧪 Paper Trading (Demo)', '💰 Live Trading (Real Money)'])
+        self.mode_selector.setCurrentIndex(0)
+        self.mode_selector.currentTextChanged.connect(self.on_mode_changed)
+        
+        mode_form.addRow("Select Mode:", self.mode_selector)
+        mode_group.setLayout(mode_form)
+        layout.addWidget(mode_group)
+        
         # Trading Status
         status_group = QGroupBox("Trading Status")
         status_form = QFormLayout()
@@ -1054,7 +1067,8 @@ class LiveTradingTab(QWidget):
         self.trading_status = QLabel("⚫ STOPPED")
         self.trading_status.setStyleSheet("color: red; font-weight: bold; font-size: 14px;")
         
-        self.trading_mode = QLabel("Paper Trading (Demo)")
+        self.trading_mode = QLabel("🧪 Paper Trading (Demo)")
+        self.trading_mode.setStyleSheet("color: orange; font-weight: bold;")
         
         status_form.addRow("Status:", self.trading_status)
         status_form.addRow("Mode:", self.trading_mode)
@@ -1144,13 +1158,52 @@ class LiveTradingTab(QWidget):
         
         layout.addStretch()
         self.setLayout(layout)
+        self.current_trading_mode = "paper"  # 'paper' or 'live'
+    
+    def on_mode_changed(self, mode_text: str):
+        """Handle trading mode change."""
+        if "Live Trading" in mode_text:
+            reply = QMessageBox.warning(
+                self,
+                "⚠️ WARNING - LIVE TRADING",
+                "Anda akan menggunakan UANG NYATA!\n\n"
+                "Pastikan:\n"
+                "✓ Semua konfigurasi sudah benar\n"
+                "✓ Koneksi MT5 sudah terhubung\n"
+                "✓ Stop Loss dan Take Profit sudah ditetapkan\n"
+                "✓ Anda memahami risiko yang ada\n\n"
+                "Lanjutkan?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+            
+            if reply == QMessageBox.StandardButton.Yes:
+                self.current_trading_mode = "live"
+                self.trading_mode.setText("💰 Live Trading (Real Money)")
+                self.trading_mode.setStyleSheet("color: red; font-weight: bold;")
+                self.log_trade("⚠️ Mode diubah ke LIVE TRADING (Real Money)")
+                logger.warning("Trading mode changed to LIVE")
+            else:
+                # Revert to paper trading
+                self.mode_selector.blockSignals(True)
+                self.mode_selector.setCurrentIndex(0)
+                self.mode_selector.blockSignals(False)
+        else:
+            self.current_trading_mode = "paper"
+            self.trading_mode.setText("🧪 Paper Trading (Demo)")
+            self.trading_mode.setStyleSheet("color: orange; font-weight: bold;")
+            self.log_trade("✓ Mode diubah ke PAPER TRADING (Demo)")
+            logger.info("Trading mode changed to PAPER")
     
     def start_trading(self):
         """Start live trading."""
+        mode_text = "Live Trading (Real Money)" if self.current_trading_mode == "live" else "Paper Trading (Demo)"
+        
+        message = f"Mulai {mode_text}?\n\n⚠️ Pastikan semua setting sudah benar!"
+        
         reply = QMessageBox.question(
             self,
-            "Start Trading",
-            "Start live trading?\n\n⚠️ Make sure all settings are correct!",
+            "Konfirmasi - Mulai Trading",
+            message,
             QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel
         )
         
@@ -1159,26 +1212,29 @@ class LiveTradingTab(QWidget):
                 self.is_trading = True
                 self.start_trade_button.setEnabled(False)
                 self.stop_trade_button.setEnabled(True)
+                self.mode_selector.setEnabled(False)
                 
                 self.trading_status.setText("🟢 RUNNING")
                 self.trading_status.setStyleSheet("color: green; font-weight: bold; font-size: 14px;")
                 
-                self.log_trade("✓ Trading started successfully")
-                logger.info("Live trading started")
+                mode_text = "Live Trading" if self.current_trading_mode == "live" else "Paper Trading"
+                self.log_trade(f"✓ {mode_text} dimulai")
+                logger.info(f"{mode_text} started")
                 
             except Exception as e:
-                QMessageBox.critical(self, "Error", f"Failed to start trading: {e}")
+                QMessageBox.critical(self, "Error", f"Gagal memulai trading: {e}")
                 self.is_trading = False
                 self.start_trade_button.setEnabled(True)
                 self.stop_trade_button.setEnabled(False)
+                self.mode_selector.setEnabled(True)
                 logger.error(f"Failed to start trading: {e}")
     
     def stop_trading(self):
         """Stop live trading."""
         reply = QMessageBox.question(
             self,
-            "Stop Trading",
-            "Stop live trading?\n\nAll open positions will be closed.",
+            "Konfirmasi - Hentikan Trading",
+            "Hentikan trading?\n\nSemua posisi yang terbuka akan ditutup.",
             QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel
         )
         
@@ -1187,15 +1243,16 @@ class LiveTradingTab(QWidget):
                 self.is_trading = False
                 self.start_trade_button.setEnabled(True)
                 self.stop_trade_button.setEnabled(False)
+                self.mode_selector.setEnabled(True)
                 
                 self.trading_status.setText("⚫ STOPPED")
                 self.trading_status.setStyleSheet("color: red; font-weight: bold; font-size: 14px;")
                 
-                self.log_trade("✓ Trading stopped")
-                logger.info("Live trading stopped")
+                self.log_trade("✓ Trading dihentikan")
+                logger.info("Trading stopped")
                 
             except Exception as e:
-                QMessageBox.critical(self, "Error", f"Failed to stop trading: {e}")
+                QMessageBox.critical(self, "Error", f"Gagal menghentikan trading: {e}")
                 logger.error(f"Failed to stop trading: {e}")
     
     def log_trade(self, message: str):
