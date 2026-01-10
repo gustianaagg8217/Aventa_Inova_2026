@@ -52,8 +52,8 @@ A state-of-the-art High-Frequency Trading (HFT) system for GOLD/XAUUSD with Meta
 
 ```bash
 # Clone the repository
-git clone https://github.com/connectaventaai-design/Trading_LowLatency_novatif.git
-cd Trading_LowLatency_novatif
+git clone https://github.com/gustianaagg8217/Aventa_Inova_2026.git
+cd Aventa_Inova_2026
 
 # Create virtual environment
 python -m venv venv
