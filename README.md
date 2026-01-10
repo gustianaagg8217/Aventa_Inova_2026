@@ -8,7 +8,7 @@
 - ⚠️ Web dashboard (early version)
 # HFT GOLD Trading System - Production Ready
 
-**Status**: Active Development (Production-Oriented Research)tambahkan:
+**Status**: Active Development (Production-Oriented Research)
 =======
 **Status**: Active Development (Production-Oriented Research)
 
