@@ -1063,7 +1063,6 @@ class LogsTab(QWidget):
         # Log Display
         self.log_display = QPlainTextEdit()
         self.log_display.setReadOnly(True)
-        self.log_display.setMaximumLines(10000)
         
         layout.addWidget(QLabel("Activity Log:"))
         layout.addWidget(self.log_display)
