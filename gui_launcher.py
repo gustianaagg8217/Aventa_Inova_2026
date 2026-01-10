@@ -1302,9 +1302,10 @@ class LiveTradingTab(QWidget):
         controls_layout.addWidget(self.stop_trade_button)
         layout.addLayout(controls_layout)
         
-        # Real-time Metrics
+        # Real-time Metrics (using GridLayout for better layout)
         metrics_group = QGroupBox("Real-time Trading Metrics")
-        metrics_form = QFormLayout()
+        metrics_grid = QGridLayout()
+        metrics_grid.setSpacing(10)
         
         self.current_price = QLabel("--")
         self.profit_loss = QLabel("$0.00")
@@ -1318,18 +1319,31 @@ class LiveTradingTab(QWidget):
         self.open_positions = QLabel("0")
         self.total_volume = QLabel("0.0 lots")
         
-        metrics_form.addRow("Current Price:", self.current_price)
-        metrics_form.addRow("Profit/Loss:", self.profit_loss)
-        metrics_form.addRow("─" * 30, QLabel(""))  # Separator
-        metrics_form.addRow("Total Trades:", self.trades_count)
-        metrics_form.addRow("Winning Trades:", self.winning_trades)
-        metrics_form.addRow("Losing Trades:", self.losing_trades)
-        metrics_form.addRow("Win Rate:", self.win_rate)
-        metrics_form.addRow("─" * 30, QLabel(""))  # Separator
-        metrics_form.addRow("Open Positions:", self.open_positions)
-        metrics_form.addRow("Total Volume:", self.total_volume)
+        # Row 0: Current Price & Profit/Loss (side by side)
+        metrics_grid.addWidget(QLabel("Current Price:"), 0, 0)
+        metrics_grid.addWidget(self.current_price, 0, 1)
+        metrics_grid.addWidget(QLabel("Profit/Loss:"), 0, 2)
+        metrics_grid.addWidget(self.profit_loss, 0, 3)
         
-        metrics_group.setLayout(metrics_form)
+        # Row 1: Trade Statistics
+        metrics_grid.addWidget(QLabel("Total Trades:"), 1, 0)
+        metrics_grid.addWidget(self.trades_count, 1, 1)
+        metrics_grid.addWidget(QLabel("Winning:"), 1, 2)
+        metrics_grid.addWidget(self.winning_trades, 1, 3)
+        
+        # Row 2: More Trade Stats
+        metrics_grid.addWidget(QLabel("Losing:"), 2, 0)
+        metrics_grid.addWidget(self.losing_trades, 2, 1)
+        metrics_grid.addWidget(QLabel("Win Rate:"), 2, 2)
+        metrics_grid.addWidget(self.win_rate, 2, 3)
+        
+        # Row 3: Position Stats
+        metrics_grid.addWidget(QLabel("Open Positions:"), 3, 0)
+        metrics_grid.addWidget(self.open_positions, 3, 1)
+        metrics_grid.addWidget(QLabel("Total Volume:"), 3, 2)
+        metrics_grid.addWidget(self.total_volume, 3, 3)
+        
+        metrics_group.setLayout(metrics_grid)
         layout.addWidget(metrics_group)
         
         # Active Positions
@@ -1339,6 +1353,8 @@ class LiveTradingTab(QWidget):
             'Position ID', 'Symbol', 'Type', 'Entry Price', 'Current Price', 'P&L', 'Size'
         ])
         self.positions_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.positions_table.setMinimumHeight(120)
+        self.positions_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         
         layout.addWidget(QLabel("Active Positions:"))
         layout.addWidget(self.positions_table)
