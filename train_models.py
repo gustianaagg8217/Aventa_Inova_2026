@@ -164,7 +164,8 @@ if TORCH_AVAILABLE:
     class SequenceDataset(Dataset):
         def __init__(self, X: np.ndarray, y: np.ndarray, seq_len: int = 32):
             self.X = X.astype(np.float32)
-            self.y = y.astype(np.float32)
+            # Ensure targets are 1D arrays (n_samples,)
+            self.y = y.ravel().astype(np.float32)
             self.seq_len = seq_len
 
         def __len__(self):
@@ -172,6 +173,7 @@ if TORCH_AVAILABLE:
 
         def __getitem__(self, idx):
             x_seq = self.X[idx: idx + self.seq_len]
+            # return scalar target (already 1D)
             y_val = self.y[idx + self.seq_len]
             return x_seq, y_val
 
@@ -212,8 +214,9 @@ if TORCH_AVAILABLE:
             train_losses = []
             for xb, yb in train_loader:
                 xb = xb.to(device)
-                yb = yb.to(device)
-                pred = model(xb)
+                # ensure target and prediction shapes match: (batch,)
+                yb = yb.to(device).view(-1)
+                pred = model(xb).view(-1)
                 loss = loss_fn(pred, yb)
                 opt.zero_grad()
                 loss.backward()
@@ -228,9 +231,10 @@ if TORCH_AVAILABLE:
             with torch.no_grad():
                 for xb, yb in val_loader:
                     xb = xb.to(device)
-                    pred = model(xb).cpu().numpy()
-                    val_preds.append(pred)
-                    val_targets.append(yb.numpy())
+                    preds_batch = model(xb).cpu().numpy().ravel()
+                    val_preds.append(preds_batch)
+                    # yb from SequenceDataset is 1D; ensure numpy ravel
+                    val_targets.append(np.array(yb).ravel())
             if val_preds:
                 val_preds = np.concatenate(val_preds, axis=0)
                 val_targets = np.concatenate(val_targets, axis=0)
