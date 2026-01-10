@@ -91,6 +91,11 @@ class TradingConfig:
     monitoring_interval: float = 1.0
     data_source: str = "csv"
     
+    # Telegram Settings
+    telegram_enabled: bool = False
+    telegram_bot_token: str = ""
+    telegram_chat_ids: str = ""  # comma-separated chat IDs
+    
     def to_dict(self) -> Dict:
         """Convert to dictionary."""
         return asdict(self)
@@ -420,6 +425,23 @@ class ConfigurationTab(QWidget):
         signal_group.setLayout(signal_form)
         layout.addWidget(signal_group)
         
+        # Telegram Settings
+        telegram_group = QGroupBox("Telegram Notifications")
+        telegram_form = QFormLayout()
+        
+        self.telegram_enabled = QCheckBox()
+        self.telegram_enabled.setChecked(self.config.telegram_enabled)
+        self.telegram_bot_token = QLineEdit(self.config.telegram_bot_token)
+        self.telegram_bot_token.setEchoMode(QLineEdit.EchoMode.Password)
+        self.telegram_chat_ids = QLineEdit(self.config.telegram_chat_ids)
+        self.telegram_chat_ids.setPlaceholderText("e.g. 123456,789012,345678")
+        
+        telegram_form.addRow("Enable Telegram:", self.telegram_enabled)
+        telegram_form.addRow("Bot Token:", self.telegram_bot_token)
+        telegram_form.addRow("Chat IDs:", self.telegram_chat_ids)
+        telegram_group.setLayout(telegram_form)
+        layout.addWidget(telegram_group)
+        
         layout.addStretch()
         self.setLayout(layout)
     
@@ -437,6 +459,9 @@ class ConfigurationTab(QWidget):
         self.config.max_positions = self.max_positions.value()
         self.config.buy_threshold = self.buy_threshold.value()
         self.config.sell_threshold = self.sell_threshold.value()
+        self.config.telegram_enabled = self.telegram_enabled.isChecked()
+        self.config.telegram_bot_token = self.telegram_bot_token.text()
+        self.config.telegram_chat_ids = self.telegram_chat_ids.text()
         
         return self.config
 
@@ -1432,6 +1457,24 @@ class LiveTradingTab(QWidget):
                 self.log_trade(f"✓ {mode_text} dimulai")
                 logger.info(f"{mode_text} started")
                 
+                # Send Telegram notification if enabled
+                if self.config.telegram_enabled and self.config.telegram_bot_token:
+                    try:
+                        from telegram_notifier import TelegramNotifier
+                        chat_ids = [c.strip() for c in self.config.telegram_chat_ids.split(',') if c.strip()]
+                        notifier = TelegramNotifier(self.config.telegram_bot_token, chat_ids)
+                        
+                        emoji = "💰" if self.current_trading_mode == "live" else "🧪"
+                        message = f"{emoji} <b>TRADING STARTED</b>\n\n"
+                        message += f"Mode: {mode_text}\n"
+                        message += f"Symbol: <b>{self.config.symbol}</b>\n"
+                        message += f"Lot Size: {self.config.lot_size}\n"
+                        message += f"Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                        
+                        notifier.send_message(message)
+                    except Exception as e:
+                        logger.warning(f"Failed to send Telegram notification: {e}")
+                
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Gagal memulai trading: {e}")
                 self.is_trading = False
@@ -1461,6 +1504,21 @@ class LiveTradingTab(QWidget):
                 
                 self.log_trade("✓ Trading dihentikan")
                 logger.info("Trading stopped")
+                
+                # Send Telegram notification if enabled
+                if self.config.telegram_enabled and self.config.telegram_bot_token:
+                    try:
+                        from telegram_notifier import TelegramNotifier
+                        chat_ids = [c.strip() for c in self.config.telegram_chat_ids.split(',') if c.strip()]
+                        notifier = TelegramNotifier(self.config.telegram_bot_token, chat_ids)
+                        
+                        message = f"⏹️ <b>TRADING STOPPED</b>\n\n"
+                        message += f"Symbol: <b>{self.config.symbol}</b>\n"
+                        message += f"Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                        
+                        notifier.send_message(message)
+                    except Exception as e:
+                        logger.warning(f"Failed to send Telegram notification: {e}")
                 
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Gagal menghentikan trading: {e}")
