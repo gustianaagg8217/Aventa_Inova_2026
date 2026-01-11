@@ -13,12 +13,12 @@ features/hawkes_process.py
 features/microstructure.py
 features/regime_detection.py
 features/technical_indicators.py
-models/__init__.py
 risk/__init__.py
 risk/risk_manager.py
 strategy/__init__.py
 tests/__init__.py
 tests/test_core.py
+trading_system/__init__.py
 trading_system.egg-info/PKG-INFO
 trading_system.egg-info/SOURCES.txt
 trading_system.egg-info/dependency_links.txt

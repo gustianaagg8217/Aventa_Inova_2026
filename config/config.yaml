@@ -1,9 +1,9 @@
 # Main Configuration File
 system:
-  name: "HFT GOLD Trading System"
+  name: "HFT CRYPTO Trading System"
   version: "1.0.0"
   timezone: "UTC"
-  paper_trading: true
+  paper_trading: false
   
 risk:
   mode: "conservative"   # Pilih:  conservative / moderate / aggressive
@@ -12,7 +12,8 @@ risk:
   trailing_stop:  true
   
 trading:
-  symbol: "XAUUSD"
+  symbol: "BTCUSD"
+  magic_number: 12345  # Unique identifier for orders
   timeframes: [1, 30, 300]  # 1s, 30s, 5m
   trading_hours: 
     start: "00:00"
