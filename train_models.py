@@ -385,8 +385,13 @@ def run_training_flow(
     logs_dir = Path('logs')
     logs_dir.mkdir(parents=True, exist_ok=True)
 
+    # Extract symbol from data file (e.g., "XAUUSD_M1_59days.csv" -> "XAUUSD")
+    data_filename = data_file.stem  # Remove .csv extension
+    symbol = data_filename.split('_')[0].upper()  # Get first part before underscore
+    
     model_name = None
     metadata = {
+        'symbol': symbol,  # Add symbol to metadata for validation
         'data_file': str(data_file),
         'data_start': str(df['time'].min()),
         'data_end': str(df['time'].max()),

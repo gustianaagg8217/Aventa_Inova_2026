@@ -372,8 +372,67 @@ class BotWorker(QThread):
         self.config = config
         self.bot = None
 
+    def validate_model_symbol(self) -> bool:
+        """Validate that trained model matches configured symbol. Returns True if valid."""
+        try:
+            from pathlib import Path
+            import os
+            
+            model_dir = Path(self.config.model_dir)
+            if not model_dir.exists():
+                self.status.emit(f"⚠️ Model directory not found: {model_dir}")
+                return False
+            
+            # Check if model metadata file exists
+            metadata_file = model_dir / "model_metadata.json"
+            if metadata_file.exists():
+                import json
+                with open(metadata_file, 'r') as f:
+                    metadata = json.load(f)
+                    trained_symbol = metadata.get('symbol', '').upper()
+                    configured_symbol = self.config.symbol.upper()
+                    
+                    if trained_symbol and trained_symbol != configured_symbol:
+                        self.status.emit(
+                            f"❌ MODEL SYMBOL MISMATCH!\n"
+                            f"Trained: {trained_symbol}\n"
+                            f"Configured: {configured_symbol}\n"
+                            f"Please train model with {configured_symbol} or change symbol in Configuration."
+                        )
+                        self.error.emit(
+                            f"Model trained on {trained_symbol} but {configured_symbol} configured. "
+                            f"Train new model or change symbol."
+                        )
+                        return False
+                    elif trained_symbol == configured_symbol:
+                        self.status.emit(f"✓ Model symbol validated: {configured_symbol}")
+                        return True
+            
+            # If no metadata, try to infer from model files or log warning
+            model_files = list(model_dir.glob("*.pkl")) + list(model_dir.glob("*.joblib")) + list(model_dir.glob("*.pt"))
+            if model_files:
+                self.status.emit(
+                    f"⚠️ No model metadata found. Using {self.config.symbol} cautiously.\n"
+                    f"Ensure trained model matches {self.config.symbol}"
+                )
+                return True  # Allow but warn
+            else:
+                self.status.emit(f"❌ No trained model files found in {model_dir}")
+                self.error.emit(f"No model files in {model_dir}. Train model first.")
+                return False
+                
+        except Exception as e:
+            self.status.emit(f"⚠️ Model validation error: {e}")
+            return True  # Graceful fallback - continue without validation
+
     def run(self):
         try:
+            self.status.emit("Validating trained model...")
+            
+            # Validate model symbol matches configuration
+            if not self.validate_model_symbol():
+                return  # Stop if validation fails
+            
             # Import the bot and map GUI config to bot config
             from auto_trading import AutoTradingBot, BotConfig as ATBotConfig
             from telegram_notifier import TelegramNotifier
