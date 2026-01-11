@@ -33,6 +33,9 @@ from PyQt6.QtWidgets import (
     QGridLayout, QDialog, QSplitter, QStatusBar, QMenuBar, QMenu,
     QSpinBox as QSpinBoxWidget, QPlainTextEdit, QHeaderView, QAbstractItemView
 )
+
+# Import Signal Service Tab
+from signal_service_tab import SignalServiceTab
 from PyQt6.QtCore import QSize
 
 
@@ -92,10 +95,23 @@ class TradingConfig:
     monitoring_interval: float = 1.0
     data_source: str = "csv"
     
-    # Telegram Settings
+    # Telegram Settings (for live trading notifications)
     telegram_enabled: bool = False
     telegram_bot_token: str = ""
     telegram_chat_ids: str = ""  # comma-separated chat IDs
+    
+    # Signal Service Settings (for broadcasting trading signals)
+    signal_service_enabled: bool = False
+    signal_bot_token: str = ""  # Dedicated signal service token
+    signal_chat_ids: str = "7521820149"  # comma-separated subscriber IDs
+    signal_symbols: str = "XAUUSD,EURUSD,GBPUSD,BTCUSD"  # symbols to broadcast
+    signal_tp_percent: float = 1.5  # TP recommendation as % of entry price
+    signal_sl_percent: float = 1.0  # SL recommendation as % of entry price
+    signal_min_confidence: float = 0.0001  # min ML score to send signal
+    signal_filter_type: str = "ALL"  # BUY / SELL / ALL
+    signal_template: str = "detailed"  # minimal / detailed / custom
+    signal_history_file: str = "logs/signal_history.csv"
+    max_signals_per_hour: int = 20  # rate limit for signal broadcasting
     
     # Convert config dataclass to dictionary format
     def to_dict(self) -> Dict:
@@ -227,7 +243,7 @@ class BacktestWorker(QThread):
             self.progress.emit(10)
             
             # Load data
-            df = pd.read_csv(f"{self.config.data_dir}/XAUUSD_M1_59days.csv")
+            df = pd.read_csv(f"{self.config.data_dir}/BTCUSD_M1_59days.csv")
             self.progress.emit(25)
             
             self.status.emit("Running predictions...")
@@ -319,7 +335,7 @@ class MonitoringWorker(QThread):
             source_kwargs = {}
             if self.config.data_source == 'csv':
                 # Use data_file from config (set from UI CSV selector)
-                csv_file = getattr(self.config, 'data_file', None) or f"{self.config.data_dir}/XAUUSD_M1_59days.csv"
+                csv_file = getattr(self.config, 'data_file', None) or f"{self.config.data_dir}/BTCUSD_M1_59days.csv"
                 source_kwargs = {'data_file': csv_file}
             elif self.config.data_source == 'mt5':
                 # Use MT5 credentials from Configuration tab
@@ -336,6 +352,20 @@ class MonitoringWorker(QThread):
                 **source_kwargs
             )
             
+            # Initialize SignalBroadcaster if signal service is enabled
+            broadcaster = None
+            if self.config.signal_service_enabled:
+                try:
+                    from signal_service import SignalBroadcaster
+                    broadcaster = SignalBroadcaster(
+                        bot_token=self.config.signal_bot_token,
+                        history_file=self.config.signal_history_file
+                    )
+                    self.status.emit("✓ Signal Service connected")
+                except Exception as e:
+                    logger.warning(f"Failed to initialize SignalBroadcaster: {e}")
+                    broadcaster = None
+            
             self.status.emit("Monitoring started...")
             iteration = 0
             
@@ -345,6 +375,11 @@ class MonitoringWorker(QThread):
                     if result:
                         result['iteration'] = iteration
                         self.update.emit(result)
+                        
+                        # Broadcast signal if service enabled and signal meets filters
+                        if broadcaster and result.get('signal') in ['BUY', 'SELL']:
+                            self._broadcast_signal(broadcaster, result)
+                        
                         iteration += 1
                     
                     self.msleep(int(self.config.monitoring_interval * 1000))
@@ -354,6 +389,75 @@ class MonitoringWorker(QThread):
         
         except Exception as e:
             self.error.emit(str(e))
+    
+    def _broadcast_signal(self, broadcaster, result):
+        """Broadcast signal to Telegram if it meets filter criteria."""
+        try:
+            signal_type = result.get('signal')  # 'BUY' or 'SELL'
+            prediction = result.get('prediction', 0)
+            timestamp = result.get('timestamp')
+            close = result.get('close', 0)
+            
+            # Check signal type filter
+            signal_filter = self.config.signal_filter_type
+            if signal_filter != 'ALL' and signal_filter != signal_type:
+                logger.info(f"Signal {signal_type} filtered by type filter (only {signal_filter})")
+                return
+            
+            # Check symbol filter
+            symbols = [s.strip().upper() for s in self.config.signal_symbols.split(',')]
+            if self.config.symbol.upper() not in symbols:
+                logger.warning(f"Signal {signal_type} NOT broadcast: Symbol {self.config.symbol} not in broadcast list {symbols}")
+                return
+            
+            logger.info(f"Broadcasting {signal_type} signal for {self.config.symbol}")
+            
+            # Check confidence threshold (use abs value of prediction)
+            if abs(prediction) < self.config.signal_min_confidence:
+                logger.info(f"Signal {signal_type} filtered: ML confidence {abs(prediction):.6f} < threshold {self.config.signal_min_confidence}")
+                return
+            
+            # Prepare signal data for broadcasting
+            signal_data = {
+                'symbol': self.config.symbol,
+                'type': signal_type,  # 'BUY' or 'SELL'
+                'price': float(close),
+                'timestamp': timestamp,
+                'ml_score': abs(float(prediction)),  # ML confidence as absolute value
+                'entry_price': float(close),
+            }
+            
+            # Calculate TP/SL based on entry price and configured percentages
+            tp_distance = close * (self.config.signal_tp_percent / 100.0)
+            sl_distance = close * (self.config.signal_sl_percent / 100.0)
+            
+            if signal_type == 'BUY':
+                signal_data['tp'] = close + tp_distance
+                signal_data['sl'] = close - sl_distance
+            else:  # SELL
+                signal_data['tp'] = close - tp_distance
+                signal_data['sl'] = close + sl_distance
+            
+            # Broadcast to all subscribers
+            chat_ids = [c.strip() for c in self.config.signal_chat_ids.split(',')]
+            for chat_id in chat_ids:
+                if chat_id:
+                    try:
+                        broadcaster.send_signal(
+                            signal_type=signal_type,
+                            symbol=self.config.symbol,
+                            entry_price=close,
+                            tp=signal_data['tp'],
+                            sl=signal_data['sl'],
+                            ml_score=signal_data['ml_score'],
+                            chat_id=int(chat_id),
+                            template=self.config.signal_template
+                        )
+                    except Exception as e:
+                        logger.warning(f"Failed to send signal to {chat_id}: {e}")
+        
+        except Exception as e:
+            logger.error(f"Error broadcasting signal: {e}")
     
     def stop(self):
         """Stop monitoring."""
@@ -597,6 +701,9 @@ class ConfigurationTab(QWidget):
         self.config.telegram_bot_token = self.telegram_bot_token.text()
         self.config.telegram_chat_ids = self.telegram_chat_ids.text()
         
+        # Note: Signal Service configuration is managed by SignalServiceTab
+        # and is loaded/saved through MainWindow's save_config/load_config methods
+        
         return self.config
 
 
@@ -783,7 +890,7 @@ class TrainingTab(QWidget):
         """Download data for the symbol using MT5 settings."""
         symbol = self.symbol_input.text().strip()
         if not symbol:
-            QMessageBox.warning(self, "No Symbol", "Please enter a symbol to download (e.g. XAUUSD).")
+            QMessageBox.warning(self, "No Symbol", "Please enter a symbol to download (e.g. BTCUSD).")
             return
         self.download_button.setEnabled(False)
         self.status_label.setText(f"Downloading {symbol}...")
@@ -1809,6 +1916,11 @@ Time: {datetime.now().strftime('%H:%M:%S')}"""
         timestamp = datetime.now().strftime("%H:%M:%S")
         self.trade_log.appendPlainText(f"[{timestamp}] {message}")
     
+    def update_status(self, status: str):
+        """Update bot status from BotWorker signal."""
+        self.log_trade(f"[Bot] {status}")
+        logger.info(f"Bot Status: {status}")
+    
     def update_metrics(self, metrics: dict):
         """Update trading metrics."""
         if 'price' in metrics:
@@ -1945,6 +2057,7 @@ class MainWindow(QMainWindow):
         self.backtest_tab = BacktestTab(self.config)
         self.realtime_tab = RealTimeTab(self.config)
         self.live_trading_tab = LiveTradingTab(self.config)
+        self.signal_service_tab = SignalServiceTab(self.config)
         self.performance_tab = PerformanceTab(self.config)
         self.risk_tab = RiskManagementTab(self.config)
         self.logs_tab = LogsTab()
@@ -1955,6 +2068,7 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.backtest_tab, "📊 Backtest")
         self.tabs.addTab(self.realtime_tab, "🔴 Real-time")
         self.tabs.addTab(self.live_trading_tab, "🚀 Live Trading")
+        self.tabs.addTab(self.signal_service_tab, "📡 Signal Service")
         self.tabs.addTab(self.performance_tab, "💹 Performance")
         self.tabs.addTab(self.risk_tab, "⚠️ Risk Management")
         self.tabs.addTab(self.logs_tab, "📋 Logs")
@@ -2037,6 +2151,20 @@ class MainWindow(QMainWindow):
             self.config.batch_size = self.training_tab.batch_size.value()
             self.config.model_type = self.training_tab.model_type.currentText()
             
+            # Update signal service config from SignalServiceTab
+            signal_config = self.signal_service_tab.get_config()
+            self.config.signal_service_enabled = signal_config.signal_service_enabled
+            self.config.signal_bot_token = signal_config.signal_bot_token
+            self.config.signal_chat_ids = signal_config.signal_chat_ids
+            self.config.signal_symbols = signal_config.signal_symbols
+            self.config.signal_tp_percent = signal_config.signal_tp_percent
+            self.config.signal_sl_percent = signal_config.signal_sl_percent
+            self.config.signal_min_confidence = signal_config.signal_min_confidence
+            self.config.signal_filter_type = signal_config.signal_filter_type
+            self.config.signal_template = signal_config.signal_template
+            self.config.signal_history_file = signal_config.signal_history_file
+            self.config.max_signals_per_hour = signal_config.max_signals_per_hour
+            
             # Save to file
             with open(self.config_file, 'w') as f:
                 json.dump(self.config.to_dict(), f, indent=2)
@@ -2090,6 +2218,7 @@ class MainWindow(QMainWindow):
         self.backtest_tab = BacktestTab(self.config)
         self.realtime_tab = RealTimeTab(self.config)
         self.live_trading_tab = LiveTradingTab(self.config)
+        self.signal_service_tab = SignalServiceTab(self.config)
         self.performance_tab = PerformanceTab(self.config)
         self.risk_tab = RiskManagementTab(self.config)
         
@@ -2099,6 +2228,7 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.backtest_tab, "📊 Backtest")
         self.tabs.addTab(self.realtime_tab, "🔴 Real-time")
         self.tabs.addTab(self.live_trading_tab, "🚀 Live Trading")
+        self.tabs.addTab(self.signal_service_tab, "📡 Signal Service")
         self.tabs.addTab(self.performance_tab, "💹 Performance")
         self.tabs.addTab(self.risk_tab, "⚠️ Risk Management")
         self.tabs.addTab(self.logs_tab, "📋 Logs")
