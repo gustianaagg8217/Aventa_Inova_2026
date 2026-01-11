@@ -26,26 +26,47 @@ print("=" * 80)
 class BotConfig:
     """Configuration for trading bot"""
     
-    # MT5 Connection
-    MT5_PATH = "C:\\Program Files\\XM Global MT5\\terminal64.exe"
-    ACCOUNT = 11260163
-    PASSWORD = 'Klapaucius82#'
-    SERVER = 'VantageInternational-Demo'
-    SYMBOL = 'BTCUSD'
+    # Load from config files or environment
+    import os
+    from pathlib import Path
+    import yaml
     
-    # Optimized Strategy Parameters
-    SMA_FAST = 5
-    SMA_SLOW = 50
-    RSI_PERIOD = 20
+    # Load main config
+    config_path = Path('config/config.yaml')
+    trading_config_path = Path('config/trading_config.yaml')
+    
+    if config_path.exists():
+        with open(config_path) as f:
+            main_cfg = yaml.safe_load(f)
+    else:
+        main_cfg = {}
+    
+    if trading_config_path.exists():
+        with open(trading_config_path) as f:
+            trade_cfg = yaml.safe_load(f)
+    else:
+        trade_cfg = {}
+    
+    # MT5 Connection (from env or config)
+    MT5_PATH = os.getenv('MT5_PATH', "C:\\Program Files\\XM Global MT5\\terminal64.exe")
+    ACCOUNT = int(os.getenv('MT5_ACCOUNT', main_cfg.get('trading', {}).get('account', 11260163)))
+    PASSWORD = os.getenv('MT5_PASSWORD', '')
+    SERVER = os.getenv('MT5_SERVER', main_cfg.get('trading', {}).get('server', 'VantageInternational-Demo'))
+    SYMBOL = main_cfg.get('trading', {}).get('symbol', 'BTCUSD')
+    
+    # Strategy Parameters (from config)
+    SMA_FAST = trade_cfg.get('strategy', {}).get('sma_fast', 5)
+    SMA_SLOW = trade_cfg.get('strategy', {}).get('sma_slow', 50)
+    RSI_PERIOD = trade_cfg.get('strategy', {}).get('rsi_period', 20)
     ATR_PERIOD = 14
-    ATR_SL_MULT = 2.5
-    ATR_TP_MULT = 4.0
+    ATR_SL_MULT = trade_cfg.get('strategy', {}).get('atr_stop_loss_multiplier', 2.5)
+    ATR_TP_MULT = trade_cfg.get('strategy', {}).get('atr_take_profit_multiplier', 4.0)
     
-    # Risk Management
-    LOT_SIZE = 0.01
-    MAX_POSITIONS = 1
+    # Risk Management (from config)
+    LOT_SIZE = trade_cfg.get('risk', {}).get('lot_size', 0.01)
+    MAX_POSITIONS = trade_cfg.get('risk', {}).get('max_positions', 1)
     MAX_DAILY_TRADES = 15
-    MAX_DAILY_LOSS = 50.0
+    MAX_DAILY_LOSS = trade_cfg.get('risk', {}).get('max_daily_loss', 50.0)
     MAX_SPREAD = 30
     
     # Session Filtering
@@ -316,16 +337,22 @@ class AutoTradingBot:
         
         # Try to load ML model predictions for additional signal confirmation
         ml_prediction = None
+        ml_score_available = False
         try:
             from inference import ModelPredictor
             from pathlib import Path
             
-            predictor = ModelPredictor(model_dir=str(Path('models')))
-            result = predictor.predict(df.tail(10))  # Use last 10 bars for prediction
-            if result and 'predictions' in result and len(result['predictions']) > 0:
-                ml_prediction = result['predictions'][-1]  # Last prediction
+            model_dir = Path('models')
+            if model_dir.exists() and any(model_dir.glob('*.pkl')) or any(model_dir.glob('*.pt')):
+                predictor = ModelPredictor(model_dir=str(model_dir))
+                result = predictor.predict(df.tail(10))  # Use last 10 bars for prediction
+                if result and 'predictions' in result and len(result['predictions']) > 0:
+                    ml_prediction = result['predictions'][-1]  # Last prediction
+                    ml_score_available = True
+        except ImportError:
+            pass  # inference.py not available, continue with TA only
         except Exception as e:
-            pass  # Continue with TA signals only if ML model fails
+            pass  # ML model loading failed, continue with TA signals only
         
         # Technical Analysis: LONG signal (SMA crossover + RSI confirmation)
         ta_long_signal = (previous['sma_fast'] <= previous['sma_slow'] and 
@@ -705,19 +732,11 @@ class AutoTradingBot:
             return
         
         self.running = True
-        print(f"\n✅ Bot is LIVE!   Monitoring for signals...")
+        print(f"\n✅ Bot is LIVE! Monitoring {self.config.SYMBOL} for signals...")
         print(f"Press Ctrl+C to stop\n")
 
-        # 🆕 FORCE CLEAR tracking sets (ensure fresh start)
-        print(f"[STARTUP] Clearing tracking sets...")
-        print(f"[STARTUP] Previous bot_order_ids size: {len(self.bot_order_ids)}")
-        self.bot_order_ids.clear()  # Force clear
-        self.notified_deals.clear()  # Force clear
-        print(f"[STARTUP] Tracking sets cleared")
-
-        
         # Track existing positions on startup
-        print(f"[STARTUP] Checking for existing positions...")
+        print(f"[STARTUP] Scanning for existing positions...")
         startup_positions = mt5.positions_get(symbol=self.config.SYMBOL)
 
         if startup_positions:
@@ -740,14 +759,9 @@ class AutoTradingBot:
 
         print(f"[STARTUP] Bot order IDs after startup: {self.bot_order_ids}")
 
-        # Send Telegram startup notification
+        # Send startup notification
         if self.telegram:
             self.telegram.send_startup()
-
-        # 🆕 FORCE IMMEDIATE MANUAL TRADE DETECTION
-        print(f"\n[TEST] Running immediate manual trade detection...")
-        self.detect_manual_trades()
-        print(f"[TEST] Manual trade detection complete\n")
         
         try:
             while self.running:
@@ -767,11 +781,8 @@ class AutoTradingBot:
                         time_module.sleep(self.config.CHECK_INTERVAL)
                         continue
                     
-                    # Check for manual trades and closed trades
-                    # 🆕 FORCE MANUAL DETECTION TEST
-                    print("\n[TEST] Force running manual trade detection...")
+                    # Check for manual trades and closed trades (once per cycle)
                     self.detect_manual_trades()
-                    print("[TEST] Manual detection test complete\n")
                     self.monitor_closed_trades()
                     
                     # Check for existing positions
