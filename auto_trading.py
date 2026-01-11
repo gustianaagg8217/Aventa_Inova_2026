@@ -71,8 +71,8 @@ class BotConfig:
     
     # Telegram Notifications
     TELEGRAM_ENABLED = True
-    TELEGRAM_BOT_TOKEN = "84050"
-    TELEGRAM_CHAT_ID = ["11111", "22222", "33333", "44444"]
+    TELEGRAM_BOT_TOKEN = "8405053497:AAF48BoKZ75M0IVK_2Mj5jlk1UgEMYBKJM4"
+    TELEGRAM_CHAT_ID = ["7521820149", "7567546279", "8076781246", "850240757"]
     
     notifier = TelegramNotifier(TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID)
 
@@ -611,6 +611,12 @@ class AutoTradingBot:
     
     def monitor_closed_trades(self):
         """Notify ALL closed positions (bot / other bot / manual)"""
+        
+        info = mt5.account_info()
+        if info is None or info.margin_level is None:
+            return
+
+        margin = info.margin_level
 
         from_date = datetime.now().replace(hour=0, minute=0, second=0)
         deals = mt5.history_deals_get(from_date, datetime.now())
@@ -664,13 +670,15 @@ class AutoTradingBot:
     {title} {result_emoji}
 
     Entry Type: <b>{direction}</b>
-    Entry Price: {deal.price_open:.2f}
+    Entry Price: {deal.price:.2f}
     Close Price: {deal.price:.2f}
 
     Volume: {deal.volume}
     P&L: ${pnl:.2f}
-    Magic: {deal.magic}
-    Ticket: {deal.position_id}
+    Margin Level: {margin:.2f}%
+    Balance: ${info.balance:.2f}
+    Equity: ${info.equity:.2f}
+    Free Margin: ${info.margin_free:.2f}
 
     Time: {datetime.now().strftime('%H:%M:%S')}
     """
