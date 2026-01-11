@@ -34,9 +34,9 @@ class TradingSystem:
         # Initialize components
         self.mt5_connector = get_mt5_connector()
         self.position_manager = get_position_manager()
-        self.order_executor = get_order_executor(
-            self.config['trading']['magic_number']
-        )
+        # Get magic number with fallback
+        magic_number = self.config.get('trading', {}).get('magic_number', 12345)
+        self.order_executor = get_order_executor(magic_number)
         
         # Risk management
         risk_mode_str = self.config_loader.get_env('RISK_MODE', 'moderate')

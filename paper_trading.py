@@ -21,7 +21,7 @@ LOT_SIZE = 0.01
 account = 9234227
 password = 'Klapaucius8#'
 server = 'InstaForex-Server'
-symbol = 'XAUUSD'
+symbol = 'BTCUSD'
 
 print(f"\n[1/5] Connecting to MT5...")
 if not mt5.initialize("C:\\Program Files\\XM Global MT5\\terminal64.exe"):

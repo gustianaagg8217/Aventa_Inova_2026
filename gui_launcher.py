@@ -58,7 +58,7 @@ class TradingConfig:
     mt5_server: str = "broker.server"
     
     # Trading Settings
-    symbol: str = "XAUUSD"
+    symbol: str = "BTCUSD"
     lot_size: float = 0.1
     stop_loss_pips: int = 100
     take_profit_pips: int = 200
@@ -104,7 +104,7 @@ class TradingConfig:
     signal_service_enabled: bool = False
     signal_bot_token: str = ""  # Dedicated signal service token
     signal_chat_ids: str = "7521820149"  # comma-separated subscriber IDs
-    signal_symbols: str = "XAUUSD,EURUSD,GBPUSD,BTCUSD"  # symbols to broadcast
+    signal_symbols: str = "BTCUSD,XAUUSD,EURUSD,GBPUSD"  # symbols to broadcast
     signal_tp_percent: float = 1.5  # TP recommendation as % of entry price
     signal_sl_percent: float = 1.0  # SL recommendation as % of entry price
     signal_min_confidence: float = 0.0001  # min ML score to send signal
@@ -608,7 +608,7 @@ class ConfigurationTab(QWidget):
         
         self.mt5_path = QLineEdit(self.config.mt5_path)
         self.mt5_login = QSpinBox()
-        self.mt5_login.setMaximum(9999999)
+        self.mt5_login.setMaximum(999999999)
         self.mt5_login.setValue(self.config.mt5_login)
         self.mt5_password = QLineEdit(self.config.mt5_password)
         self.mt5_password.setEchoMode(QLineEdit.EchoMode.Password)
@@ -1487,7 +1487,7 @@ class RiskManagementTab(QWidget):
         risk_amount = account * (risk_pct / 100)
         pips = self.stop_loss_pips.value()
         
-        # For XAUUSD: 1 pip = $0.01, 1 lot = 100 oz
+        # For BTCUSD: 1 pip = $1, 1 lot = 1 BTC
         pip_value = 0.10  # per pip per lot for gold
         
         if pips > 0 and pip_value > 0:

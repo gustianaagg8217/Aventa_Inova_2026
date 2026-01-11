@@ -78,7 +78,7 @@ class MT5Connector:
                 account_config = mt5_config['account']
                 
                 # Initialize MT5
-                if not mt5.initialize():
+                if not mt5.initialize("C:\\Program Files\\XM Global MT5\\terminal64.exe"):
                     self.logger.error("Failed to initialize MT5", error=mt5.last_error())
                     return False
                     
