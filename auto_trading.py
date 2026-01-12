@@ -52,7 +52,7 @@ class BotConfig:
     ACCOUNT = int(os.getenv('MT5_ACCOUNT', main_cfg.get('trading', {}).get('account', 11260163)))
     PASSWORD = os.getenv('MT5_PASSWORD', '')
     SERVER = os.getenv('MT5_SERVER', main_cfg.get('trading', {}).get('server', 'VantageInternational-Demo'))
-    SYMBOL = main_cfg.get('trading', {}).get('symbol', 'BTCUSD')
+    SYMBOL = main_cfg.get('trading', {}).get('symbol', 'XAUUSD')
     
     # Strategy Parameters (from config)
     SMA_FAST = trade_cfg.get('strategy', {}).get('sma_fast', 5)
@@ -72,7 +72,7 @@ class BotConfig:
     # Session Filtering
     TRADE_LONDON = True
     TRADE_NY = True
-    TRADE_ASIAN = False
+    TRADE_ASIAN = True
     
     LONDON_START = time(8, 0)
     LONDON_END = time(16, 0)
@@ -92,8 +92,8 @@ class BotConfig:
     
     # Telegram Notifications
     TELEGRAM_ENABLED = True
-    TELEGRAM_BOT_TOKEN = "8405053497:AAF48BoKZ75M0IVK_2Mj5jlk1UgEMYBKJM4"
-    TELEGRAM_CHAT_ID = ["7521820149", "7567546279", "8076781246", "850240757"]
+    TELEGRAM_BOT_TOKEN = "ghghghghg:"
+    TELEGRAM_CHAT_ID = ["1111", "2222", "3333", "4444"]
     
     notifier = TelegramNotifier(TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID)
 
