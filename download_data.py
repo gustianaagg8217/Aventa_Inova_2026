@@ -82,7 +82,8 @@ def download_symbol(symbol: str = 'GOLD.ls', mt5_path: Optional[str] = None, acc
         Path(output_dir).mkdir(parents=True, exist_ok=True)
 
         days_actual = (df['time'].max() - df['time'].min()).days
-        filename = Path(output_dir) / f"{symbol.replace('.', '_')}_M1_{days_actual}days.csv"
+        # Keep symbol as-is in filename (preserve dots for symbols like GOLD.ls)
+        filename = Path(output_dir) / f"{symbol}_M1_{days_actual}days.csv"
         df.to_csv(filename, index=False)
 
         return str(filename)

@@ -31,12 +31,11 @@ from PyQt6.QtWidgets import (
     QComboBox, QCheckBox, QTableWidget, QTableWidgetItem, QFileDialog,
     QMessageBox, QProgressBar, QTextEdit, QGroupBox, QFormLayout,
     QGridLayout, QDialog, QSplitter, QStatusBar, QMenuBar, QMenu,
-    QSpinBox as QSpinBoxWidget, QPlainTextEdit, QHeaderView, QAbstractItemView
+    QPlainTextEdit, QHeaderView, QAbstractItemView
 )
 
 # Import Signal Service Tab
 from signal_service_tab import SignalServiceTab
-from PyQt6.QtCore import QSize
 
 
 # Configure logging
@@ -126,14 +125,14 @@ class TradingConfig:
 
 
 # Logging handler that bridges log records to PyQt signals
-class LogHandler(logging.Handler, QObject):
+class LogHandler(QObject, logging.Handler):
     """Custom logging handler that emits signals."""
     
     log_signal = pyqtSignal(str)
     
     def __init__(self):
-        logging.Handler.__init__(self)
         QObject.__init__(self)
+        logging.Handler.__init__(self)
     
     def emit(self, record: logging.LogRecord):
         """Emit log record."""
@@ -242,8 +241,13 @@ class BacktestWorker(QThread):
             self.status.emit("Loading backtest data...")
             self.progress.emit(10)
             
-            # Load data
-            df = pd.read_csv(f"{self.config.data_dir}/XAUUSD_M1_59days.csv")
+            # Load data - use configured data file or build path from symbol
+            if self.config.data_file and Path(self.config.data_file).exists():
+                data_file = self.config.data_file
+            else:
+                data_file = f"{self.config.data_dir}/{self.config.symbol}_M1_59days.csv"
+            
+            df = pd.read_csv(data_file)
             self.progress.emit(25)
             
             self.status.emit("Running predictions...")
@@ -480,41 +484,56 @@ class BotWorker(QThread):
         """Validate that trained model matches configured symbol. Returns True if valid."""
         try:
             from pathlib import Path
-            import os
+            import json
             
             model_dir = Path(self.config.model_dir)
             if not model_dir.exists():
                 self.status.emit(f"⚠️ Model directory not found: {model_dir}")
                 return False
             
-            # Check if model metadata file exists
-            metadata_file = model_dir / "model_metadata.json"
-            if metadata_file.exists():
-                import json
-                with open(metadata_file, 'r') as f:
-                    metadata = json.load(f)
-                    trained_symbol = metadata.get('symbol', '').upper()
-                    configured_symbol = self.config.symbol.upper()
-                    
-                    if trained_symbol and trained_symbol != configured_symbol:
-                        self.status.emit(
-                            f"❌ MODEL SYMBOL MISMATCH!\n"
-                            f"Trained: {trained_symbol}\n"
-                            f"Configured: {configured_symbol}\n"
-                            f"Please train model with {configured_symbol} or change symbol in Configuration."
-                        )
-                        self.error.emit(
-                            f"Model trained on {trained_symbol} but {configured_symbol} configured. "
-                            f"Train new model or change symbol."
-                        )
-                        return False
-                    elif trained_symbol == configured_symbol:
-                        self.status.emit(f"✓ Model symbol validated: {configured_symbol}")
-                        return True
+            # Look for any *_metadata.json file (e.g., rf_baseline_metadata.json, lstm_model_metadata.json)
+            metadata_files = list(model_dir.glob("*_metadata.json"))
             
-            # If no metadata, try to infer from model files or log warning
+            if metadata_files:
+                # Use first metadata file found
+                metadata_file = metadata_files[0]
+                logger.info(f"Found metadata file: {metadata_file.name}")
+                
+                try:
+                    with open(metadata_file, 'r') as f:
+                        metadata = json.load(f)
+                        trained_symbol = metadata.get('symbol', '').upper()
+                        configured_symbol = self.config.symbol.upper()
+                        
+                        if trained_symbol:
+                            if trained_symbol != configured_symbol:
+                                self.status.emit(
+                                    f"❌ MODEL SYMBOL MISMATCH!\n"
+                                    f"Trained: {trained_symbol}\n"
+                                    f"Configured: {configured_symbol}\n"
+                                    f"Please train model with {configured_symbol} or change symbol in Configuration."
+                                )
+                                self.error.emit(
+                                    f"Model trained on {trained_symbol} but {configured_symbol} configured. "
+                                    f"Train new model or change symbol."
+                                )
+                                return False
+                            else:
+                                self.status.emit(f"✓ Model symbol validated: {configured_symbol}")
+                                return True
+                        else:
+                            self.status.emit(f"⚠️ Metadata found but no symbol info. Using {configured_symbol} cautiously.")
+                            return True
+                
+                except json.JSONDecodeError as e:
+                    logger.warning(f"Invalid JSON in metadata file: {e}")
+                    self.status.emit(f"⚠️ Invalid metadata format. Using {self.config.symbol} cautiously.")
+                    return True
+            
+            # If no metadata, check for model files
             model_files = list(model_dir.glob("*.pkl")) + list(model_dir.glob("*.joblib")) + list(model_dir.glob("*.pt"))
             if model_files:
+                logger.info(f"Found {len(model_files)} model file(s) but no metadata")
                 self.status.emit(
                     f"⚠️ No model metadata found. Using {self.config.symbol} cautiously.\n"
                     f"Ensure trained model matches {self.config.symbol}"
@@ -526,6 +545,7 @@ class BotWorker(QThread):
                 return False
                 
         except Exception as e:
+            logger.error(f"Model validation error: {e}")
             self.status.emit(f"⚠️ Model validation error: {e}")
             return True  # Graceful fallback - continue without validation
 
@@ -945,7 +965,8 @@ class TrainingTab(QWidget):
     def stop_training(self):
         """Stop training."""
         if self.worker:
-            self.worker.terminate()
+            self.worker.quit()
+            self.worker.wait(3000)  # Wait up to 3 seconds for graceful shutdown
         self.train_button.setEnabled(True)
         self.stop_button.setEnabled(False)
         self.status_label.setText("Training stopped")
@@ -1113,8 +1134,18 @@ class RealTimeTab(QWidget):
         settings_form = QFormLayout()
         
         self.source = QComboBox()
-        self.source.addItems(['csv', 'mt5', 'yfinance'])
-        self.source.setCurrentText(self.config.data_source)
+        # Add data sources - check availability
+        self.source.addItem('csv', 'CSV File (Recommended)')
+        self.source.addItem('mt5', 'MT5 Terminal')
+        
+        # Only add yfinance if available
+        try:
+            import yfinance
+            self.source.addItem('yfinance', 'Yahoo Finance')
+        except ImportError:
+            logger.warning("yfinance not installed, skipping this option")
+        
+        self.source.setCurrentText(self.config.data_source if self.config.data_source in ['csv', 'mt5'] else 'csv')
         self.source.currentTextChanged.connect(self.on_data_source_changed)
         
         self.interval = QDoubleSpinBox()
@@ -1168,6 +1199,8 @@ class RealTimeTab(QWidget):
         metrics_group = QGroupBox("Live Metrics")
         metrics_form = QFormLayout()
         
+        self.symbol_label = QLabel("--")
+        self.symbol_label.setStyleSheet("font-weight: bold; color: #2196F3; font-size: 12pt;")
         self.iteration_label = QLabel("0")
         self.latest_price = QLabel("--")
         self.latest_prediction = QLabel("--")
@@ -1176,6 +1209,7 @@ class RealTimeTab(QWidget):
         self.sell_count = QLabel("0")
         self.hold_count = QLabel("0")
         
+        metrics_form.addRow("Symbol:", self.symbol_label)
         metrics_form.addRow("Iteration:", self.iteration_label)
         metrics_form.addRow("Latest Price:", self.latest_price)
         metrics_form.addRow("Prediction:", self.latest_prediction)
@@ -1252,6 +1286,19 @@ class RealTimeTab(QWidget):
         self.config.data_source = self.source.currentText()
         self.config.monitoring_interval = self.interval.value()
         
+        # Check data source and warn user if needed
+        if self.config.data_source == 'MT5 Terminal':
+            QMessageBox.information(
+                self,
+                "MT5 Terminal Required",
+                "⚠️ MetaTrader 5 Terminal harus:\n\n"
+                "1. ✓ Sudah berjalan di latar belakang\n"
+                "2. ✓ Login dengan akun yang sesuai\n"
+                "3. ✓ Terhubung ke server broker\n\n"
+                "Jika MT5 tidak berjalan, sistem akan fallback ke CSV.\n"
+                "Periksa Logs tab untuk status koneksi."
+            )
+        
         # If CSV source, get selected file
         if self.config.data_source == 'csv':
             self.selected_csv_file = self.csv_selector.currentData()
@@ -1267,7 +1314,7 @@ class RealTimeTab(QWidget):
             self.config.data_file = self.selected_csv_file
         elif self.config.data_source == 'mt5':
             # When MT5 is selected, MT5 config should already be synced from Configuration tab
-            self.status_label.setText("MT5 source selected - using Configuration settings")
+            self.status_label.setText("Attempting MT5 connection (check terminal)...")
         
         self.worker = MonitoringWorker(self.config)
         self.worker.update.connect(self.on_update)
@@ -1279,7 +1326,12 @@ class RealTimeTab(QWidget):
         """Stop monitoring."""
         if self.worker:
             self.worker.stop()
-            self.worker.wait()
+            # Wait up to 3 seconds for graceful shutdown
+            if not self.worker.wait(3000):
+                # If timeout, force terminate (last resort)
+                logger.warning("Monitoring worker did not stop gracefully, terminating forcefully")
+                self.worker.terminate()
+                self.worker.wait(1000)
         
         self.start_button.setEnabled(True)
         self.stop_button.setEnabled(False)
@@ -1295,6 +1347,10 @@ class RealTimeTab(QWidget):
     
     def on_update(self, result: dict):
         """Update with new prediction."""
+        # Update symbol
+        if 'symbol' in result:
+            self.symbol_label.setText(result['symbol'])
+        
         self.iteration_label.setText(str(result.get('iteration', 0)))
         self.latest_price.setText(f"${result['close']:.2f}")
         self.latest_prediction.setText(f"{result['prediction']:.2e}")
@@ -1316,12 +1372,12 @@ class RealTimeTab(QWidget):
         self.sell_count.setText(str(self.signal_counts['SELL']))
         self.hold_count.setText(str(self.signal_counts['HOLD']))
         
-        # Add to history
-        row = self.history_table.rowCount()
-        if row >= 50:
+        # Add to history - maintain max 50 rows
+        if self.history_table.rowCount() >= 50:
             self.history_table.removeRow(0)
-        else:
-            self.history_table.insertRow(row)
+        
+        row = self.history_table.rowCount()
+        self.history_table.insertRow(row)
         
         self.history_table.setItem(row, 0, QTableWidgetItem(str(result['timestamp'])))
         self.history_table.setItem(row, 1, QTableWidgetItem(f"${result['close']:.2f}"))

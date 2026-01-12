@@ -52,49 +52,87 @@ except ImportError:
 class DataSourceMT5:
     """Fetch live data from MetaTrader 5."""
     
-    def __init__(self, login: int, password: str, server: str):
+    def __init__(self, login: int, password: str, server: str, timeout: int = 5):
         if not MT5_AVAILABLE:
             raise RuntimeError("MetaTrader5 not installed")
         
         self.login = login
         self.password = password
         self.server = server
+        self.timeout = timeout
         self.connected = False
         self.connect()
     
     def connect(self):
-        """Connect to MT5."""
-        if mt5.initialize(login=self.login, password=self.password, server=self.server):
-            self.connected = True
-            logger.info(f"Connected to MT5: {self.server}")
-        else:
-            raise ConnectionError(f"Failed to connect to MT5: {mt5.last_error()}")
+        """Connect to MT5 with timeout."""
+        try:
+            logger.info(f"Connecting to MT5: {self.server} (login: {self.login})...")
+            
+            # Initialize with timeout (wait for terminal)
+            if mt5.initialize(login=self.login, password=self.password, server=self.server, timeout=self.timeout * 1000):
+                self.connected = True
+                logger.info(f"✓ Connected to MT5: {self.server}")
+                return True
+            else:
+                error_msg = mt5.last_error()
+                logger.warning(f"MT5 connection failed: {error_msg}")
+                raise ConnectionError(f"MT5 init error: {error_msg}")
+        
+        except Exception as e:
+            logger.error(f"MT5 connection exception: {e}")
+            raise ConnectionError(f"Cannot connect to MT5: {e}")
+    
+    def is_connected(self) -> bool:
+        """Check if MT5 is still connected."""
+        try:
+            # Try to get account info to verify connection
+            info = mt5.account_info()
+            return info is not None
+        except Exception:
+            return False
     
     def get_candles(self, symbol: str = 'XAUUSD', timeframe: int = None, n_candles: int = 100) -> pd.DataFrame:
         """Fetch OHLC candles from MT5."""
         if not self.connected:
-            raise RuntimeError("Not connected to MT5")
-        
-        if timeframe is None:
-            timeframe = mt5.TIMEFRAME_M1
-        
-        ticks = mt5.copy_rates_from_pos(symbol, timeframe, 0, n_candles)
-        
-        if ticks is None:
-            logger.error(f"Failed to fetch {symbol}: {mt5.last_error()}")
+            logger.error("Not connected to MT5")
             return None
         
-        df = pd.DataFrame(ticks)
-        df['time'] = pd.to_datetime(df['time'], unit='s')
+        try:
+            if timeframe is None:
+                timeframe = mt5.TIMEFRAME_M1
+            
+            # Check connection before fetching
+            if not self.is_connected():
+                logger.warning("MT5 connection lost, attempting reconnect...")
+                self.connect()
+                return None
+            
+            ticks = mt5.copy_rates_from_pos(symbol, timeframe, 0, n_candles)
+            
+            if ticks is None:
+                error_code, error_msg = mt5.last_error()
+                logger.warning(f"Failed to fetch {symbol}: {error_code} - {error_msg}")
+                return None
+            
+            df = pd.DataFrame(ticks)
+            df['time'] = pd.to_datetime(df['time'], unit='s')
+            
+            logger.debug(f"Fetched {len(df)} candles for {symbol}")
+            return df[['time', 'open', 'high', 'low', 'close']]
         
-        return df[['time', 'open', 'high', 'low', 'close']]
+        except Exception as e:
+            logger.error(f"Error fetching MT5 candles: {e}")
+            return None
     
     def disconnect(self):
         """Disconnect from MT5."""
-        if self.connected:
-            mt5.shutdown()
-            self.connected = False
-            logger.info("Disconnected from MT5")
+        try:
+            if self.connected and MT5_AVAILABLE:
+                mt5.shutdown()
+                self.connected = False
+                logger.info("Disconnected from MT5")
+        except Exception as e:
+            logger.warning(f"Error disconnecting MT5: {e}")
 
 
 class DataSourceYFinance:
@@ -116,9 +154,31 @@ class DataSourceYFinance:
             n_candles: Number of candles to fetch
         """
         try:
-            # Fetch data with suppressed output
-            df = yf.download(symbol, period='7d', interval=interval, progress=False)
+            import threading
             
+            result = {'data': None, 'error': None}
+            
+            def fetch_with_timeout():
+                """Fetch yfinance data in separate thread."""
+                try:
+                    result['data'] = yf.download(symbol, period='7d', interval=interval, progress=False)
+                except Exception as e:
+                    result['error'] = e
+            
+            # Run download in thread with 8 second timeout (Windows-compatible)
+            thread = threading.Thread(target=fetch_with_timeout, daemon=True)
+            thread.start()
+            thread.join(timeout=8.0)  # Wait max 8 seconds
+            
+            if thread.is_alive():
+                logger.warning(f"yfinance download timeout for {symbol}")
+                return None
+            
+            if result['error']:
+                logger.error(f"yfinance fetch error: {result['error']}")
+                return None
+            
+            df = result['data']
             if df is None or len(df) == 0:
                 logger.warning(f"No data retrieved for {symbol}")
                 return None
@@ -215,65 +275,85 @@ class RealTimeMonitor:
         logger.info(f"Model: {self.predictor.model_name}, Type: {type(self.predictor.model).__name__}")
     
     def _init_data_source(self, source: str, kwargs: Dict):
-        """Initialize data source."""
-        if source == 'mt5':
-            if not MT5_AVAILABLE:
-                raise RuntimeError("MT5 not available")
-            return DataSourceMT5(kwargs['login'], kwargs['password'], kwargs['server'])
+        """Initialize data source with fallback to CSV on failure."""
+        try:
+            if source == 'mt5':
+                if not MT5_AVAILABLE:
+                    raise RuntimeError("MT5 not available")
+                return DataSourceMT5(kwargs['login'], kwargs['password'], kwargs['server'])
+            
+            elif source == 'yfinance':
+                if not YFINANCE_AVAILABLE:
+                    raise RuntimeError("yfinance not available")
+                logger.info("Attempting yfinance initialization...")
+                return DataSourceYFinance()
+            
+            elif source == 'csv':
+                data_file = kwargs.get('data_file', 'data/XAUUSD_M1_59days.csv')
+                return DataSourceCSV(data_file)
+            
+            else:
+                raise ValueError(f"Unknown source: {source}")
         
-        elif source == 'yfinance':
-            if not YFINANCE_AVAILABLE:
-                raise RuntimeError("yfinance not available")
-            return DataSourceYFinance()
-        
-        elif source == 'csv':
-            data_file = kwargs.get('data_file', 'data/XAUUSD_M1_59days.csv')
-            return DataSourceCSV(data_file)
-        
-        else:
-            raise ValueError(f"Unknown source: {source}")
+        except Exception as e:
+            logger.error(f"Failed to initialize {source} data source: {e}")
+            logger.warning("Falling back to CSV data source")
+            
+            # Fallback to CSV
+            try:
+                data_file = kwargs.get('data_file', 'data/XAUUSD_M1_59days.csv')
+                return DataSourceCSV(data_file)
+            except Exception as csv_error:
+                logger.error(f"CSV fallback also failed: {csv_error}")
+                raise RuntimeError(f"Could not initialize any data source. Last error: {csv_error}")
     
-    def fetch_data(self, **kwargs) -> pd.DataFrame:
-        """Fetch latest data."""
+    def fetch_data(self, symbol: str = 'XAUUSD', **kwargs) -> pd.DataFrame:
+        """Fetch latest data for symbol."""
         if self.source == 'mt5':
-            return self.data_source.get_candles(**kwargs)
+            return self.data_source.get_candles(symbol=symbol, **kwargs)
         elif self.source == 'yfinance':
-            return self.data_source.get_candles(**kwargs)
+            return self.data_source.get_candles(symbol=symbol, **kwargs)
         elif self.source == 'csv':
             return self.data_source.get_candles(**kwargs)
     
     def run_single_iteration(self, symbol: str = 'XAUUSD') -> Dict:
         """Run one prediction iteration."""
-        # Fetch data
-        df = self.fetch_data(n_candles=self.lookback_bars)
+        try:
+            # Fetch data with specified symbol
+            df = self.fetch_data(symbol=symbol, n_candles=self.lookback_bars)
+            
+            if df is None or len(df) == 0:
+                logger.warning(f"No data fetched for {symbol}, skipping iteration")
+                return None
+            
+            # Make prediction
+            result = self.predictor.predict(df)
+            pred = result['predictions'][-1]
+            close = result['close'][-1]
+            timestamp = df['time'].iloc[-1]
+            
+            # Generate signal
+            if pred > 0.0001:  # Threshold for BUY
+                signal = 'BUY'
+            elif pred < -0.0001:  # Threshold for SELL
+                signal = 'SELL'
+            else:
+                signal = 'HOLD'
+            
+            result_dict = {
+                'symbol': symbol,
+                'timestamp': timestamp,
+                'close': float(close),
+                'prediction': float(pred),
+                'signal': signal,
+                'bars_processed': len(df),
+            }
+            
+            return result_dict
         
-        if df is None or len(df) == 0:
-            logger.warning("No data fetched")
+        except Exception as e:
+            logger.error(f"Error in run_single_iteration for {symbol}: {e}", exc_info=False)
             return None
-        
-        # Make prediction
-        result = self.predictor.predict(df)
-        pred = result['predictions'][-1]
-        close = result['close'][-1]
-        timestamp = df['time'].iloc[-1]
-        
-        # Generate signal
-        if pred > 0.0001:  # Threshold for BUY
-            signal = 'BUY'
-        elif pred < -0.0001:  # Threshold for SELL
-            signal = 'SELL'
-        else:
-            signal = 'HOLD'
-        
-        result_dict = {
-            'timestamp': timestamp,
-            'close': float(close),
-            'prediction': float(pred),
-            'signal': signal,
-            'bars_processed': len(df),
-        }
-        
-        return result_dict
     
     def run_continuous(self, interval_seconds: int = 60, max_iterations: int = None, symbol: str = 'XAUUSD'):
         """
