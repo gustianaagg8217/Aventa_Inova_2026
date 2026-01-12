@@ -24,6 +24,11 @@ from datetime import datetime
 from typing import Optional
 import yaml
 import json
+import logging
+
+# Basic logger for launcher
+logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s')
+logger = logging.getLogger('start_trading')
 
 def print_header(title):
     """Print styled header"""
@@ -376,6 +381,36 @@ def ask_credentials():
     print(f"   Path: {path}\n")
     return True
 
+def save_symbol_to_config(symbol: str) -> bool:
+    """Save selected symbol to config file"""
+    try:
+        config_path = Path('config/config.yaml')
+        
+        # Read existing config
+        if config_path.exists():
+            with open(config_path) as f:
+                cfg = yaml.safe_load(f) or {}
+        else:
+            cfg = {}
+        
+        # Ensure trading section exists
+        if 'trading' not in cfg:
+            cfg['trading'] = {}
+        
+        # Update symbol
+        cfg['trading']['symbol'] = symbol
+        
+        # Write back to file
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(config_path, 'w') as f:
+            yaml.dump(cfg, f, default_flow_style=False)
+        
+        logger.info(f"Saved symbol '{symbol}' to config")
+        return True
+    except Exception as e:
+        logger.warning(f"Failed to save symbol to config: {e}")
+        return False
+
 def start_trading_bot():
     """Start the auto trading bot"""
     print_header("🚀 STARTING AUTO TRADING BOT")
@@ -401,7 +436,13 @@ def start_trading_bot():
     print("[STEP 1/5] Symbol Selection\n")
     selected_symbol = select_symbol()
     status['symbol'] = selected_symbol
-    print()
+    
+    # Save symbol to config file so auto_trading.py reads it
+    print("\n[CONFIG] Saving symbol to configuration...")
+    if save_symbol_to_config(selected_symbol):
+        print(f"✅ Symbol '{selected_symbol}' saved to config/config.yaml\n")
+    else:
+        print(f"⚠️  Warning: Could not save symbol to config (will try to use from command line)\n")
     
     # Check 1: Configuration
     print("[STEP 2/5] Running pre-flight checks...\n")
@@ -484,6 +525,8 @@ def start_trading_bot():
     print("="*80 + "\n")
     
     try:
+        # Export selected symbol to environment so auto_trading.py picks it up
+        os.environ['MT5_SYMBOL'] = status['symbol']
         subprocess.run(
             [sys.executable, 'auto_trading.py'],
             check=False
@@ -734,79 +777,10 @@ def download_data_from_mt5():
     
     print(f"✅ MT5 Path: {mt5_path}\n")
     
-    # Step 2: Account Number
-    print("[STEP 2/5] Account Number\n")
-    account = os.getenv('MT5_ACCOUNT')
-    if account:
-        print(f"Current Account: {account}")
-        change = input("Change? (y/n): ").strip().lower()
-        if change == 'y':
-            account = input("Enter MT5 Account Number: ").strip()
-    else:
-        account = input("Enter MT5 Account Number: ").strip()
-    
-    if not account or not account.isdigit():
-        print("❌ Valid account number required")
-        input("Press Enter to return to menu...")
-        return False
-    
-    print(f"✅ Account: {account}\n")
-    
-    # Step 3: Password
-    print("[STEP 3/5] Password\n")
-    password = os.getenv('MT5_PASSWORD')
-    if password:
-        print(f"Current Password: {'*' * len(password)}")
-        change = input("Change? (y/n): ").strip().lower()
-        if change == 'y':
-            password = input("Enter MT5 Password: ").strip()
-    else:
-        password = input("Enter MT5 Password: ").strip()
-    
-    if not password:
-        print("❌ Password is required")
-        input("Press Enter to return to menu...")
-        return False
-    
-    print(f"✅ Password: {'*' * len(password)}\n")
-    
-    # Step 4: Server
-    print("[STEP 4/5] Server\n")
-    server = os.getenv('MT5_SERVER')
-    if server:
-        print(f"Current Server: {server}")
-        change = input("Change? (y/n): ").strip().lower()
-        if change == 'y':
-            print("\nCommon servers:")
-            print("  1. VantageInternational-Demo")
-            print("  2. VantageInternational-Live")
-            print("  3. Other...")
-            choice = input("Select (1-3): ").strip()
-            if choice == '1':
-                server = "VantageInternational-Demo"
-            elif choice == '2':
-                server = "VantageInternational-Live"
-            else:
-                server = input("Enter server name: ").strip()
-    else:
-        print("Common servers:")
-        print("  1. VantageInternational-Demo")
-        print("  2. VantageInternational-Live")
-        print("  3. Other...")
-        choice = input("Select (1-3): ").strip()
-        if choice == '1':
-            server = "VantageInternational-Demo"
-        elif choice == '2':
-            server = "VantageInternational-Live"
-        else:
-            server = input("Enter server name: ").strip()
-    
-    if not server:
-        print("❌ Server is required")
-        input("Press Enter to return to menu...")
-        return False
-    
-    print(f"✅ Server: {server}\n")
+    # NOTE: We intentionally DO NOT prompt for account/password/server here.
+    # The scripts should not force a login. The MT5 terminal should be
+    # opened and the user should login interactively. We only need the
+    # MT5 installation path and the symbol to download data.
     
     # Step 5: Symbol
     print("[STEP 5/5] Trading Symbol\n")
@@ -850,8 +824,6 @@ def download_data_from_mt5():
     print_header("📊 DOWNLOAD CONFIGURATION")
     print("[CONFIGURATION SUMMARY]\n")
     print(f"  MT5 Path:    {mt5_path}")
-    print(f"  Account:     {account}")
-    print(f"  Server:      {server}")
     print(f"  Symbol:      {symbol}")
     print(f"  Output Dir:  data/")
     print()
@@ -867,11 +839,10 @@ def download_data_from_mt5():
     print("=" * 80)
     
     try:
+        # Call download_data script inside the trading_system package
         cmd = [
-            sys.executable, 'download_data.py',
-            '--account', account,
-            '--password', password,
-            '--server', server,
+            sys.executable,
+            '01_Trading_LowLatency_novatif/Trading_LowLatency_novatif/trading_system/download_data.py',
             '--symbol', symbol,
             '--mt5-path', mt5_path,
             '--output-dir', 'data'

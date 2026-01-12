@@ -1,51 +1,46 @@
-# Main Configuration File
-system:
-  name: "HFT CRYPTO Trading System"
-  version: "1.0.0"
-  timezone: "UTC"
-  paper_trading: false
-  
+execution:
+  connection_pool_size: 5
+  max_retries: 3
+  order_timeout_seconds: 30
+  retry_delay_ms: 100
+  target_latency_ms: 10
+monitoring:
+  health_check_interval_seconds: 30
+  log_level: INFO
+  metrics_interval_seconds: 60
+  performance_tracking: true
 risk:
-  mode: "conservative"   # Pilih:  conservative / moderate / aggressive
-  emergency_stop_loss: 0.15   # Auto-stop jika drawdown 15%
-  max_daily_loss: 0.05        # Max loss 5% per hari
-  trailing_stop:  true
-  
-trading:
-  symbol: "XAUUSD"
-  magic_number: 12345  # Unique identifier for orders
-  timeframes: [1, 30, 300]  # 1s, 30s, 5m
-  trading_hours: 
-    start: "00:00"
-    end: "23:59"
-    timezone: "UTC"
-
-  
+  emergency_stop_loss: 0.15
+  max_daily_loss: 0.05
+  mode: conservative
+  trailing_stop: true
+shutdown:
+  force_close_positions: true
+  graceful_timeout_seconds: 30
+system:
+  name: HFT CRYPTO Trading System
+  paper_trading: false
+  timezone: UTC
+  version: 1.0.0
 timeframes:
-  tick_level:
-    enabled: true
-    window_seconds: 1
-  short_term:
-    enabled: true
-    window_seconds: 120
-    primary: true
   medium_term:
     enabled: true
     window_seconds: 900
-    
-execution:
-  target_latency_ms: 10
-  connection_pool_size: 5
-  order_timeout_seconds: 30
-  max_retries: 3
-  retry_delay_ms: 100
-  
-monitoring:
-  log_level: "INFO"
-  performance_tracking: true
-  metrics_interval_seconds: 60
-  health_check_interval_seconds: 30
-  
-shutdown:
-  graceful_timeout_seconds: 30
-  force_close_positions: true
+  short_term:
+    enabled: true
+    primary: true
+    window_seconds: 120
+  tick_level:
+    enabled: true
+    window_seconds: 1
+trading:
+  magic_number: 12345
+  symbol: GOLD.LS
+  timeframes:
+  - 1
+  - 30
+  - 300
+  trading_hours:
+    end: '23:59'
+    start: 00:00
+    timezone: UTC

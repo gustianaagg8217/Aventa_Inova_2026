@@ -1,5 +1,6 @@
 from logging import info
 import MetaTrader5 as mt5
+import requests
 import pandas as pd
 import numpy as np
 from datetime import datetime, time
@@ -47,26 +48,31 @@ class BotConfig:
     else:
         trade_cfg = {}
     
-    # MT5 Connection (from env or config)
-    MT5_PATH = os.getenv('MT5_PATH', "C:\\Program Files\\XM Global MT5\\terminal64.exe")
-    ACCOUNT = int(os.getenv('MT5_ACCOUNT', main_cfg.get('trading', {}).get('account', 11260163)))
-    PASSWORD = os.getenv('MT5_PASSWORD', '')
-    SERVER = os.getenv('MT5_SERVER', main_cfg.get('trading', {}).get('server', 'VantageInternational-Demo'))
-    SYMBOL = main_cfg.get('trading', {}).get('symbol', 'XAUUSD')
-    
+    # MT5 Connection (prefer environment variables, fall back to config)
+    MT5_PATH = os.getenv('MT5_PATH') or main_cfg.get('trading', {}).get('mt5_path', "C:\\Program Files\\XM Global MT5\\terminal64.exe")
+    try:
+        ACCOUNT = int(os.getenv('MT5_ACCOUNT') or main_cfg.get('trading', {}).get('account', 9226902))
+    except Exception:
+        ACCOUNT = main_cfg.get('trading', {}).get('account', 9226902)
+    PASSWORD = os.getenv('MT5_PASSWORD') or main_cfg.get('trading', {}).get('password', '')
+    SERVER = os.getenv('MT5_SERVER') or main_cfg.get('trading', {}).get('server', 'InstaForex-Server')
+    SYMBOL = os.getenv('MT5_SYMBOL') or main_cfg.get('trading', {}).get('symbol', 'GOLD.ls')
+
     # Strategy Parameters (from config)
     SMA_FAST = trade_cfg.get('strategy', {}).get('sma_fast', 5)
     SMA_SLOW = trade_cfg.get('strategy', {}).get('sma_slow', 50)
     RSI_PERIOD = trade_cfg.get('strategy', {}).get('rsi_period', 20)
+    RSI_LONG_MAX = trade_cfg.get('strategy', {}).get('rsi_long_max', 70)
+    RSI_SHORT_MIN = trade_cfg.get('strategy', {}).get('rsi_short_min', 30)
     ATR_PERIOD = 14
     ATR_SL_MULT = trade_cfg.get('strategy', {}).get('atr_stop_loss_multiplier', 2.5)
     ATR_TP_MULT = trade_cfg.get('strategy', {}).get('atr_take_profit_multiplier', 4.0)
     
     # Risk Management (from config)
     LOT_SIZE = trade_cfg.get('risk', {}).get('lot_size', 0.01)
-    MAX_POSITIONS = trade_cfg.get('risk', {}).get('max_positions', 1)
+    MAX_POSITIONS = trade_cfg.get('risk', {}).get('max_positions', 10)
     MAX_DAILY_TRADES = 15
-    MAX_DAILY_LOSS = trade_cfg.get('risk', {}).get('max_daily_loss', 50.0)
+    MAX_DAILY_LOSS = trade_cfg.get('risk', {}).get('max_daily_loss', -1550.0)
     MAX_SPREAD = 30
     
     # Session Filtering
@@ -92,8 +98,8 @@ class BotConfig:
     
     # Telegram Notifications
     TELEGRAM_ENABLED = True
-    TELEGRAM_BOT_TOKEN = "ghghghghg:"
-    TELEGRAM_CHAT_ID = ["2222", "3333", "4444", "5555"]
+    TELEGRAM_BOT_TOKEN = "8405053497:"
+    TELEGRAM_CHAT_ID = ["444"]
     
     notifier = TelegramNotifier(TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID)
 
@@ -219,6 +225,23 @@ class AutoTradingBot:
                     self.config.TELEGRAM_CHAT_ID
                 )
                 print("✅ Telegram notifier initialized")
+                # Run a lightweight startup test for Telegram
+                try:
+                    token = self.config.TELEGRAM_BOT_TOKEN
+                    chat = self.config.TELEGRAM_CHAT_ID
+                    if isinstance(chat, (list, tuple)):
+                        chat = chat[0]
+                    resp = requests.post(
+                        f"https://api.telegram.org/bot{token}/sendMessage",
+                        data={"chat_id": chat, "text": "[BOT] Startup test message"},
+                        timeout=5
+                    )
+                    try:
+                        print(f"Telegram test: {resp.status_code} {resp.text}")
+                    except Exception:
+                        print(f"Telegram test: status {resp.status_code}")
+                except Exception as e:
+                    print(f"Telegram startup test failed: {e}")
             except Exception as e:  
                 print(f"⚠️ Telegram initialization failed: {e}")
                 self.telegram = None
@@ -228,27 +251,68 @@ class AutoTradingBot:
     def connect_mt5(self):
         """Connect to MT5"""
         print(f"\n[CONNECT] Initializing MT5...")
-        
-        if not mt5.initialize(self.config.MT5_PATH):
+        # Initialize MT5 terminal using provided path (do NOT force login)
+        mt5_path = getattr(self.config, 'MT5_PATH', None)
+        initialized = False
+        try:
+            # Use provided path only if it looks like an executable file
+            if mt5_path and os.path.isfile(mt5_path) and mt5_path.lower().endswith('.exe'):
+                initialized = mt5.initialize(mt5_path)
+            else:
+                if mt5_path:
+                    print(f"[WARN] Configured MT5_PATH looks invalid or is not an executable: '{mt5_path}'")
+                print("[INFO] Trying default mt5.initialize() (attach to running terminal)...")
+                initialized = mt5.initialize()
+        except Exception as e:
+            print(f"[ERROR] Exception during mt5.initialize(): {e}")
+
+        if not initialized:
             print(f"❌ MT5 initialize failed:  {mt5.last_error()}")
             return False
-        
-        if not mt5.login(self.config.ACCOUNT, password=self.config.PASSWORD, 
-                        server=self.config.SERVER):
-            print(f"❌ MT5 login failed: {mt5.last_error()}")
-            return False
-        
+
+        # Do NOT call mt5.login(...) here to avoid forcing a login that may
+        # disconnect the terminal. Rely on the MT5 terminal being already
+        # logged in by the user. Check account info instead.
         info = mt5.account_info()
+        if info is None:
+            print("⚠️  MT5 terminal is not logged in. Please open MetaTrader 5 and login to your account, then retry.")
+            # Keep MT5 initialized but not connected for trading operations
+            self.mt5_connected = False
+            return False
+
         print(f"✅ Connected to MT5")
-        print(f"   Account: {info.login} ({info.name})")
-        print(f"   Balance: ${info.balance:.2f}")
-        print(f"   Server: {info.server}")
-        
+        try:
+            print(f"   Account: {info.login} ({info.name})")
+            print(f"   Balance: ${info.balance:.2f}")
+            print(f"   Server: {info.server}")
+        except Exception:
+            pass
+
         self.mt5_connected = True
 
         # Initialize live performance tracker
-        info = mt5.account_info()
-        self.live_tracker.initialize(info)
+        try:
+            self.live_tracker.initialize(info)
+        except Exception:
+            pass
+
+        # Try to resolve symbol name (in case of different casing or provider suffixes)
+        try:
+            resolved = self.resolve_symbol(self.config.SYMBOL)
+            if resolved and resolved != self.config.SYMBOL:
+                print(f"[DEBUG] Resolved symbol '{self.config.SYMBOL}' -> '{resolved}'")
+                self.config.SYMBOL = resolved
+            elif not resolved:
+                # Show a short sample of available symbols to help debugging
+                try:
+                    syms = mt5.symbols_get()
+                    names = [s.name for s in syms] if syms else []
+                    sample = names[:30]
+                    print(f"[DEBUG] Could not resolve '{self.config.SYMBOL}'. Sample available symbols: {sample}")
+                except Exception:
+                    print(f"[DEBUG] Could not resolve '{self.config.SYMBOL}' and failed to list symbols")
+        except Exception:
+            pass
 
         return True
 
@@ -278,9 +342,10 @@ class AutoTradingBot:
         if self.state['daily_trades'] >= self.config.MAX_DAILY_TRADES:
             return False, f"Max daily trades reached ({self.state['daily_trades']})"
         
-        # Check max daily loss
-        if self.state['daily_pnl'] <= -self.config.MAX_DAILY_LOSS:
-            return False, f"Max daily loss reached (${self.state['daily_pnl']:.2f})"
+        # Check max daily loss (use absolute value to avoid sign confusion)
+        max_daily_loss = abs(self.config.MAX_DAILY_LOSS)
+        if self.state['daily_pnl'] <= -max_daily_loss:
+            return False, f"Max daily loss reached (${self.state['daily_pnl']:.2f}), threshold -${max_daily_loss:.2f}"
         
         # Check max positions
         positions = mt5.positions_get(symbol=self.config.SYMBOL)
@@ -291,10 +356,27 @@ class AutoTradingBot:
     
     def get_market_data(self):
         """Fetch and process market data"""
-        rates = mt5.copy_rates_from_pos(self.config.SYMBOL, self.config.TIMEFRAME, 
+        # Ensure symbol is available in Market Watch
+
+        # Attempt to ensure the symbol is visible in Market Watch and print debug info
+        try:
+            selected = mt5.symbol_select(self.config.SYMBOL, True)
+            print(f"[DEBUG] mt5.symbol_select('{self.config.SYMBOL}') -> {selected}")
+            # Do not print full symbol_info to avoid verbose logs
+            _ = mt5.symbol_info(self.config.SYMBOL)
+        except Exception as e:
+            print(f"[DEBUG] symbol_select/info error: {e}")
+
+        rates = mt5.copy_rates_from_pos(self.config.SYMBOL, self.config.TIMEFRAME,
                                         0, self.config.DATA_BARS)
-        
+
         if rates is None or len(rates) == 0:
+            # Provide MT5 error info to help troubleshooting
+            try:
+                err = mt5.last_error()
+                print(f"[WARN] Failed to fetch rates for {self.config.SYMBOL}: {err}")
+            except Exception:
+                print(f"[WARN] Failed to fetch rates for {self.config.SYMBOL}: unknown error")
             return None
         
         df = pd.DataFrame(rates)
@@ -356,13 +438,13 @@ class AutoTradingBot:
         
         # Technical Analysis: LONG signal (SMA crossover + RSI confirmation)
         ta_long_signal = (previous['sma_fast'] <= previous['sma_slow'] and 
-                         current['sma_fast'] > current['sma_slow'] and 
-                         current['rsi'] < 70)
+                 current['sma_fast'] > current['sma_slow'] and 
+                 current['rsi'] < self.config.RSI_LONG_MAX)
         
         # Technical Analysis: SHORT signal (SMA crossover + RSI confirmation)
         ta_short_signal = (previous['sma_fast'] >= previous['sma_slow'] and 
-                          current['sma_fast'] < current['sma_slow'] and 
-                          current['rsi'] > 30)
+                  current['sma_fast'] < current['sma_slow'] and 
+                  current['rsi'] > self.config.RSI_SHORT_MIN)
         
         # Combine ML + TA signals
         # If ML model available: require both TA crossover AND positive ML prediction
@@ -423,7 +505,7 @@ class AutoTradingBot:
             "magic": 2300,
             "comment":  "AutoBot",
             "type_time":  mt5.ORDER_TIME_GTC,
-            "type_filling": mt5.ORDER_FILLING_IOC,
+            "type_filling": mt5.ORDER_FILLING_FOK,
         }
         
         # Send order
@@ -562,7 +644,6 @@ class AutoTradingBot:
 
                 continue
 
-
             # =====================================================
             # 2️⃣ AUTO TRADE BOT LAIN (magic ≠ 0)
             # =====================================================
@@ -602,7 +683,7 @@ class AutoTradingBot:
     Free Margin: ${info.margin_free:.2f}
     Time: {datetime.now().strftime('%H:%M:%S')}
     """
-                self.telegram.send_message(message)
+                    self.telegram.send_message(message)
 
                 continue
 
@@ -634,6 +715,40 @@ class AutoTradingBot:
                 self.telegram.send_message(message)
 
                 continue
+
+    def resolve_symbol(self, symbol: str):
+        """Try to resolve the exact symbol name available in MT5.
+
+        Attempts in order:
+        - exact match
+        - case-insensitive exact match among available symbols
+        - case-insensitive substring match among available symbols
+        Returns the resolved symbol name or None.
+        """
+        try:
+            info = mt5.symbol_info(symbol)
+            if info is not None:
+                return symbol
+
+            # Fetch available symbols and try to find close matches
+            syms = mt5.symbols_get()
+            names = [s.name for s in syms] if syms else []
+
+            # Case-insensitive exact match
+            lower = symbol.lower()
+            exact_matches = [n for n in names if n.lower() == lower]
+            if exact_matches:
+                return exact_matches[0]
+
+            # Substring match
+            substring_matches = [n for n in names if lower in n.lower()]
+            if substring_matches:
+                return substring_matches[0]
+
+        except Exception:
+            pass
+
+        return None
 
     
     def monitor_closed_trades(self):

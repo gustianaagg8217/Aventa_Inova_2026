@@ -8,9 +8,9 @@ connection:
   
 account:
   # Set via environment variables
-  account_number: ${11260163}
-  password: ${Klapaucius82#}
-  server: ${VantageInternational-Demo}
+  account_number: ${9226902}
+  password: ${Klapaucius8#}
+  server: ${InstaForex-Server}
   
 data:
   tick_buffer_size: 10000
@@ -18,7 +18,7 @@ data:
   max_bars_download: 50000
   
 symbols:
-  - name: "XAUUSD"
+  - name: "GOLD.ls"
     description: "Gold vs US Dollar"
     point: 0.01
     tick_size: 0.01

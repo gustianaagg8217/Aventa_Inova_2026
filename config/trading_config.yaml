@@ -7,21 +7,24 @@ system:
   
 strategy:
   name: "Optimized SMA-RSI Crossover"
-  sma_fast: 5
-  sma_slow: 50
+  # More tolerant settings: faster response and wider slow window
+  sma_fast: 3
+  sma_slow: 60
   rsi_period: 20
   atr_stop_loss_multiplier: 2.5
   atr_take_profit_multiplier: 4.0
+  rsi_long_max: 80
+  rsi_short_min: 20
   
 risk:
   mode: "conservative"
-  risk_per_trade: 0.005  # 0.5%
+  risk_per_trade: 1  # 0.5%
   max_positions: 1
-  max_daily_loss: 0.03   # 3%
+  max_daily_loss: 1550   # increased threshold
   lot_size: 0.01
   
 trading:
-  symbol: "XAUUSD"
+  symbol: "GOLD.ls"
   magic_number: 12345  # Unique identifier for orders
   timeframes: [1, 30, 300]  # 1s, 30s, 5m
   trading_hours: 
