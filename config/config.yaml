@@ -12,7 +12,7 @@ risk:
   trailing_stop:  true
   
 trading:
-  symbol: "BTCUSD"
+  symbol: "XAUUSD"
   magic_number: 12345  # Unique identifier for orders
   timeframes: [1, 30, 300]  # 1s, 30s, 5m
   trading_hours: 

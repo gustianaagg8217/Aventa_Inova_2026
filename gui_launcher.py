@@ -58,7 +58,7 @@ class TradingConfig:
     mt5_server: str = "broker.server"
     
     # Trading Settings
-    symbol: str = "BTCUSD"
+    symbol: str = "XAUUSD"
     lot_size: float = 0.1
     stop_loss_pips: int = 100
     take_profit_pips: int = 200
@@ -104,7 +104,7 @@ class TradingConfig:
     signal_service_enabled: bool = False
     signal_bot_token: str = ""  # Dedicated signal service token
     signal_chat_ids: str = "7521820149"  # comma-separated subscriber IDs
-    signal_symbols: str = "BTCUSD,XAUUSD,EURUSD,GBPUSD"  # symbols to broadcast
+    signal_symbols: str = "XAUUSD,BTCUSD,EURUSD,GBPUSD"  # symbols to broadcast
     signal_tp_percent: float = 1.5  # TP recommendation as % of entry price
     signal_sl_percent: float = 1.0  # SL recommendation as % of entry price
     signal_min_confidence: float = 0.0001  # min ML score to send signal
@@ -243,7 +243,7 @@ class BacktestWorker(QThread):
             self.progress.emit(10)
             
             # Load data
-            df = pd.read_csv(f"{self.config.data_dir}/BTCUSD_M1_59days.csv")
+            df = pd.read_csv(f"{self.config.data_dir}/XAUUSD_M1_59days.csv")
             self.progress.emit(25)
             
             self.status.emit("Running predictions...")

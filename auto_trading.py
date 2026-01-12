@@ -93,7 +93,7 @@ class BotConfig:
     # Telegram Notifications
     TELEGRAM_ENABLED = True
     TELEGRAM_BOT_TOKEN = "ghghghghg:"
-    TELEGRAM_CHAT_ID = ["1111", "2222", "3333", "4444"]
+    TELEGRAM_CHAT_ID = ["2222", "3333", "4444", "5555"]
     
     notifier = TelegramNotifier(TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID)
 

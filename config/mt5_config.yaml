@@ -8,9 +8,9 @@ connection:
   
 account:
   # Set via environment variables
-  account_number: ${9234227}
-  password: ${Klapaucius8#}
-  server: ${InstaForex-Server}
+  account_number: ${11260163}
+  password: ${Klapaucius82#}
+  server: ${VantageInternational-Demo}
   
 data:
   tick_buffer_size: 10000

@@ -2,7 +2,7 @@
 """
 Real-time market monitoring and prediction system.
 
-Fetches live BTCUSD data, runs inference, and displays predictions.
+Fetches live XAUUSD data, runs inference, and displays predictions.
 Supports multiple data sources: MT5, yfinance, or CSV rolling window.
 
 Usage:
@@ -13,7 +13,7 @@ Usage:
     python real_time_monitor.py --source yfinance
 
     # With CSV rolling window (for backtesting)
-    python real_time_monitor.py --source csv --data-file data/BTCUSD_M1_59days.csv --interval 60
+    python real_time_monitor.py --source csv --data-file data/XAUUSD_M1_59days.csv --interval 60
 """
 from __future__ import annotations
 
@@ -70,7 +70,7 @@ class DataSourceMT5:
         else:
             raise ConnectionError(f"Failed to connect to MT5: {mt5.last_error()}")
     
-    def get_candles(self, symbol: str = 'BTCUSD', timeframe: int = None, n_candles: int = 100) -> pd.DataFrame:
+    def get_candles(self, symbol: str = 'XAUUSD', timeframe: int = None, n_candles: int = 100) -> pd.DataFrame:
         """Fetch OHLC candles from MT5."""
         if not self.connected:
             raise RuntimeError("Not connected to MT5")
@@ -227,7 +227,7 @@ class RealTimeMonitor:
             return DataSourceYFinance()
         
         elif source == 'csv':
-            data_file = kwargs.get('data_file', 'data/BTCUSD_M1_59days.csv')
+            data_file = kwargs.get('data_file', 'data/XAUUSD_M1_59days.csv')
             return DataSourceCSV(data_file)
         
         else:
@@ -242,7 +242,7 @@ class RealTimeMonitor:
         elif self.source == 'csv':
             return self.data_source.get_candles(**kwargs)
     
-    def run_single_iteration(self, symbol: str = 'BTCUSD') -> Dict:
+    def run_single_iteration(self, symbol: str = 'XAUUSD') -> Dict:
         """Run one prediction iteration."""
         # Fetch data
         df = self.fetch_data(n_candles=self.lookback_bars)
@@ -275,7 +275,7 @@ class RealTimeMonitor:
         
         return result_dict
     
-    def run_continuous(self, interval_seconds: int = 60, max_iterations: int = None, symbol: str = 'BTCUSD'):
+    def run_continuous(self, interval_seconds: int = 60, max_iterations: int = None, symbol: str = 'XAUUSD'):
         """
         Run continuous monitoring loop.
         
@@ -370,8 +370,8 @@ def main():
     parser.add_argument("--login", type=int, help="MT5 login")
     parser.add_argument("--password", type=str, help="MT5 password")
     parser.add_argument("--server", type=str, help="MT5 server")
-    parser.add_argument("--symbol", type=str, default='BTCUSD', help="Trading symbol")
-    parser.add_argument("--data-file", type=str, default='data/BTCUSD_M1_59days.csv',
+    parser.add_argument("--symbol", type=str, default='XAUUSD', help="Trading symbol")
+    parser.add_argument("--data-file", type=str, default='data/XAUUSD_M1_59days.csv',
                        help="CSV data file (for csv source)")
     parser.add_argument("--interval", type=float, default=1, help="Monitoring interval in seconds (for demo)")
     parser.add_argument("--iterations", type=int, help="Max iterations (default: infinite)")

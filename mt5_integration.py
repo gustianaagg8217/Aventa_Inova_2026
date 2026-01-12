@@ -198,7 +198,7 @@ class TradingBot:
         self.min_prediction_strength = 0.0  # Minimum prediction magnitude to trade
         self.position_size = 0.1  # In lots
     
-    def fetch_market_data(self, symbol: str = 'BTCUSD', timeframe: int = None) -> pd.DataFrame:
+    def fetch_market_data(self, symbol: str = 'XAUUSD', timeframe: int = None) -> pd.DataFrame:
         """Fetch recent market data."""
         if self.mt5 is None:
             raise RuntimeError("MT5 not connected")
@@ -234,7 +234,7 @@ class TradingBot:
             'close': float(df['close'].iloc[-1]),
         }
     
-    def execute_trade(self, signal: Dict, symbol: str = 'BTCUSD'):
+    def execute_trade(self, signal: Dict, symbol: str = 'XAUUSD'):
         """Execute trade based on signal."""
         if signal['signal'] == 'HOLD':
             logger.info(f"No trade signal (prediction: {signal['prediction']:.2e})")
@@ -254,7 +254,7 @@ class TradingBot:
         
         return ticket
     
-    def run_realtime_loop(self, symbol: str = 'BTCUSD', interval_seconds: int = 60):
+    def run_realtime_loop(self, symbol: str = 'XAUUSD', interval_seconds: int = 60):
         """Run continuous trading loop (requires MT5)."""
         if self.mt5 is None:
             logger.error("MT5 not connected - cannot run real-time loop")
@@ -288,7 +288,7 @@ class TradingBot:
             if self.mt5:
                 self.mt5.disconnect()
     
-    def backtest_day(self, symbol: str = 'BTCUSD', date_str: str = None) -> Dict:
+    def backtest_day(self, symbol: str = 'XAUUSD', date_str: str = None) -> Dict:
         """Backtest on historical data for a specific day."""
         if self.mt5 is None:
             logger.error("MT5 not connected")
@@ -312,7 +312,7 @@ def main():
     parser = argparse.ArgumentParser(description="MT5 Trading Bot")
     parser.add_argument("--mode", choices=['paper', 'backtest', 'live'], default='paper',
                        help="Trading mode")
-    parser.add_argument("--symbol", type=str, default='BTCUSD', help="Trading symbol")
+    parser.add_argument("--symbol", type=str, default='XAUUSD', help="Trading symbol")
     parser.add_argument("--login", type=int, help="MT5 login")
     parser.add_argument("--password", type=str, help="MT5 password")
     parser.add_argument("--server", type=str, help="MT5 server")

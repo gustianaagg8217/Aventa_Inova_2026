@@ -23,7 +23,7 @@ print(f"  Stop Loss: {ATR_SL_MULT}x ATR")
 print(f"  Take Profit: {ATR_TP_MULT}x ATR")
 
 # Load data
-data_file = 'data/BTCUSD_M1_59days.csv'
+data_file = 'data/XAUUSD_M1_59days.csv'
 print(f"\n[1/5] Loading data from {data_file}...")
 
 df = pd.read_csv(data_file)

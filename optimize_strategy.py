@@ -8,7 +8,7 @@ print("STRATEGY PARAMETER OPTIMIZATION")
 print("=" * 70)
 
 # Load data
-data_file = 'data/BTCUSD_M1_59days.csv'
+data_file = 'data/XAUUSD_M1_59days.csv'
 df = pd.read_csv(data_file)
 df['time'] = pd.to_datetime(df['time'])
 
