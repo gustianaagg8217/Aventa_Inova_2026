@@ -110,7 +110,7 @@ max_signals_per_hour: int                 # Rate limiting
 
 ### Telegram Connection
 ```
-Bot Token: xxxxxxx:xxxxxxx
+Bot Token: xxxxxxx:xxxxxxxx
 Default Chat ID: 7521820149
 (Additional subscribers can be added via GUI)
 ```
