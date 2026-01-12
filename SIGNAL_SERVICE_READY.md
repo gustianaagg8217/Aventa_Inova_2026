@@ -117,7 +117,7 @@ Default Chat ID: 7521820149
 
 ### Signal Configuration
 ```
-Symbols: XAUUSD, EURUSD, GBPUSD
+Symbols: XAUUSD, EURUSD, GBPUSD, EURGBP
 TP: 1.5% | SL: 1.0% | RR Ratio: 1.5x
 Min ML Confidence: 0.0001
 Template: Detailed (HTML format)
