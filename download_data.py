@@ -11,7 +11,7 @@ DEFAULT_PASSWORD = None
 DEFAULT_SERVER = None
 
 
-def download_symbol(symbol: str = 'BTCUSD', mt5_path: Optional[str] = None, account: Optional[int] = None,
+def download_symbol(symbol: str = 'GOLD.ls', mt5_path: Optional[str] = None, account: Optional[int] = None,
                     password: Optional[str] = None, server: Optional[str] = None, timeframe: str = 'M1',
                     output_dir: str = 'data', strategies: Optional[list] = None) -> str:
     """Download historical bars from MT5 for `symbol` and save to CSV in `output_dir`.
@@ -99,7 +99,7 @@ if __name__ == '__main__':
     import argparse
 
     p = argparse.ArgumentParser()
-    p.add_argument('--symbol', default='BTCUSD')
+    p.add_argument('--symbol', default='GOLD.ls')
     p.add_argument('--mt5-path', default=None)
     p.add_argument('--output-dir', default='data')
     args = p.parse_args()

@@ -61,8 +61,14 @@ except Exception:
 # -------------------------
 # Data / Feature utilities
 # -------------------------
-def find_latest_data_file(data_dir: Path, pattern: str = "XAUUSD_M1_*.csv") -> Optional[Path]:
+def find_latest_data_file(data_dir: Path, pattern: str = "*_M1_*.csv") -> Optional[Path]:
+    """Find latest data file. Searches for *_M1_*.csv pattern to match GOLD_ls, XAUUSD, BTCUSD, etc."""
     files = list(Path(data_dir).glob(pattern))
+    if not files:
+        # Try alternative patterns
+        files = list(Path(data_dir).glob("GOLD.ls_M1_*.csv"))
+    if not files:
+        files = list(Path(data_dir).glob("*.csv"))
     if not files:
         return None
     # choose largest file (heuristic for most complete)
@@ -265,7 +271,7 @@ if TORCH_AVAILABLE:
 else:
     # placeholders if torch not available
     def train_lstm(*args, **kwargs):
-        raise RuntimeError("PyTorch is not available in this environmentXAUUSDInstall torch to use LSTM model.")
+        raise RuntimeError("PyTorch is not available in this environmentGOLD.lsInstall torch to use LSTM model.")
 
 
 # -------------------------
@@ -357,7 +363,7 @@ def run_training_flow(
         data_file = find_latest_data_file(data_dir)
 
     if data_file is None:
-        logger.error(f"No data file found in {data_dir}. Please put CSV files like XAUUSD_M1_*.csv in that folder.")
+        logger.error(f"No data file found in {data_dir}. Please put CSV files like *_M1_*.csv (e.g., GOLD_ls_M1_59days.csv, XAUUSD_M1_59days.csv) in that folder.")
         sys.exit(1)
 
     logger.info(f"Loading data from {data_file}")
@@ -385,7 +391,7 @@ def run_training_flow(
     logs_dir = Path('logs')
     logs_dir.mkdir(parents=True, exist_ok=True)
 
-    # Extract symbol from data file (e.g., "XAUUSD_M1_59days.csv" -> "XAUUSD")
+    # Extract symbol from data file (e.g., "GOLD.ls_M1_59days.csv" -> "GOLD.ls")
     data_filename = data_file.stem  # Remove .csv extension
     symbol = data_filename.split('_')[0].upper()  # Get first part before underscore
     
