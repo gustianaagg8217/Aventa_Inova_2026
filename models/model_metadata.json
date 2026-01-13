@@ -1,0 +1,23 @@
+{
+  "data_file": "D:\\AVENTA\\Aventa_AI_2027\\02_Aventa_Inovation_trading_v3\\Aventa_Inova_2026\\data\\XAUUSD_M1_59days.csv",
+  "symbol": "XAUUSD",
+  "data_start": "2025-11-11 19:13:00",
+  "data_end": "2026-01-10 19:11:00",
+  "target_horizon": 1,
+  "baseline_test_metrics": {
+    "mse": 2.550729208126768e-07,
+    "mae": 0.0003308163257063399,
+    "r2": -1.56295171336307e-05
+  },
+  "run_timestamp": "20260111T000000Z",
+  "validation_metrics": {
+    "mse": 1.5780207351811306e-07,
+    "mae": 0.0002557971504661351,
+    "r2": -0.03340686948371063
+  },
+  "test_metrics": {
+    "mse": 2.6890533264949e-07,
+    "mae": 0.00034226921131312344,
+    "r2": -0.054245721785099565
+  }
+}
