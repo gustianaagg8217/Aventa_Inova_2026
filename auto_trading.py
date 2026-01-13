@@ -98,8 +98,8 @@ class BotConfig:
     
     # Telegram Notifications
     TELEGRAM_ENABLED = True
-    TELEGRAM_BOT_TOKEN = "8405053497:"
-    TELEGRAM_CHAT_ID = ["444"]
+    TELEGRAM_BOT_TOKEN = "8405053497:AAF48BoKZ75M0IVK_2Mj5jlk1UgEMYBKJM4"
+    TELEGRAM_CHAT_ID = ["7521820149"]
     
     notifier = TelegramNotifier(TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID)
 
@@ -438,13 +438,13 @@ class AutoTradingBot:
         
         # Technical Analysis: LONG signal (SMA crossover + RSI confirmation)
         ta_long_signal = (previous['sma_fast'] <= previous['sma_slow'] and 
-                 current['sma_fast'] > current['sma_slow'] and 
-                 current['rsi'] < self.config.RSI_LONG_MAX)
+                         current['sma_fast'] > current['sma_slow'] and 
+                         current['rsi'] < 70)
         
         # Technical Analysis: SHORT signal (SMA crossover + RSI confirmation)
         ta_short_signal = (previous['sma_fast'] >= previous['sma_slow'] and 
-                  current['sma_fast'] < current['sma_slow'] and 
-                  current['rsi'] > self.config.RSI_SHORT_MIN)
+                          current['sma_fast'] < current['sma_slow'] and 
+                          current['rsi'] > 30)
         
         # Combine ML + TA signals
         # If ML model available: require both TA crossover AND positive ML prediction

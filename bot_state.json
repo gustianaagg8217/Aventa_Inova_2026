@@ -1,7 +1,7 @@
 {
-  "daily_trades": 0,
-  "daily_pnl": -34384.38000000056,
-  "last_trade_date": "2026-01-10",
-  "total_trades": 3,
-  "margin_status": "SAFE"
+  "daily_trades": 4,
+  "daily_pnl": 1521010.0,
+  "last_trade_date": "2026-01-13",
+  "total_trades": 7,
+  "margin_status": "MARGIN_CALL"
 }

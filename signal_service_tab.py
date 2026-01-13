@@ -377,6 +377,7 @@ class SignalServiceTab(QWidget):
         QMessageBox.information(self, "Success", "✓ Signal configuration saved!")
         logger.info("Signal service configuration updated")
     
+    
     def add_subscriber(self):
         """Add new subscriber."""
         chat_id = self.chat_id_input.text().strip()
