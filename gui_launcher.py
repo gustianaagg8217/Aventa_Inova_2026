@@ -16,6 +16,7 @@ import json
 import logging
 import sys
 import threading
+import time
 from dataclasses import dataclass, asdict
 from datetime import datetime
 from pathlib import Path
@@ -23,6 +24,7 @@ from typing import Dict, Optional, Any
 
 import numpy as np
 import pandas as pd
+import yaml
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QThread, QSize, QObject
 from PyQt6.QtGui import QFont, QIcon, QColor
 from PyQt6.QtWidgets import (
@@ -122,6 +124,52 @@ class TradingConfig:
     def from_dict(data: Dict) -> 'TradingConfig':
         """Create from dictionary."""
         return TradingConfig(**data)
+
+    def save_to_yaml_files(self, config_dir: str = 'config') -> None:
+        """Save GUI config into YAML files used by `auto_trading.py`.
+
+        Writes two files under `config_dir`:
+        - `config.yaml` with MT5/trading credentials under `trading` key
+        - `trading_config.yaml` with `strategy` and `risk` sections
+        """
+        cfg_path = Path(config_dir)
+        cfg_path.mkdir(parents=True, exist_ok=True)
+
+        # config.yaml -> main trading settings (mt5 connection)
+        main_cfg = {
+            'trading': {
+                'mt5_path': self.mt5_path,
+                'account': int(self.mt5_login) if self.mt5_login else None,
+                'password': self.mt5_password,
+                'server': self.mt5_server,
+                'symbol': self.symbol,
+            }
+        }
+
+        # trading_config.yaml -> strategy + risk
+        trading_cfg = {
+            'strategy': {
+                'sma_fast': getattr(self, 'sma_period', 20),
+                'sma_slow': getattr(self, 'sma_period', 20) * 2,
+                'rsi_period': getattr(self, 'rsi_period', 14),
+                'rsi_long_max': getattr(self, 'rsi_overbought', 70),
+                'rsi_short_min': getattr(self, 'rsi_oversold', 30),
+                'atr_stop_loss_multiplier': 2.5,
+                'atr_take_profit_multiplier': 4.0,
+            },
+            'risk': {
+                'lot_size': getattr(self, 'lot_size', 0.1),
+                'max_positions': getattr(self, 'max_positions', 3),
+                'max_daily_loss': getattr(self, 'max_daily_loss', 1000.0),
+            }
+        }
+
+        # Write files
+        with open(cfg_path / 'config.yaml', 'w', encoding='utf-8') as f:
+            yaml.safe_dump(main_cfg, f, default_flow_style=False, sort_keys=False)
+
+        with open(cfg_path / 'trading_config.yaml', 'w', encoding='utf-8') as f:
+            yaml.safe_dump(trading_cfg, f, default_flow_style=False, sort_keys=False)
 
 
 # Logging handler that bridges log records to PyQt signals
@@ -328,6 +376,10 @@ class MonitoringWorker(QThread):
         super().__init__()
         self.config = config
         self.running = True
+        # Track last broadcast per symbol to avoid duplicates: symbol -> {signal, time}
+        self._last_broadcast: Dict[str, Dict[str, Any]] = {}
+        # Per-chat rate limit mapping: chat_id -> retry_until (epoch seconds)
+        self._chat_rate_limited: Dict[str, float] = {}
     
     def run(self):
         """Run monitoring."""
@@ -400,66 +452,93 @@ class MonitoringWorker(QThread):
             signal_type = result.get('signal')  # 'BUY' or 'SELL'
             prediction = result.get('prediction', 0)
             timestamp = result.get('timestamp')
-            close = result.get('close', 0)
-            
+            close = float(result.get('close', 0))
+
             # Check signal type filter
             signal_filter = self.config.signal_filter_type
             if signal_filter != 'ALL' and signal_filter != signal_type:
                 logger.info(f"Signal {signal_type} filtered by type filter (only {signal_filter})")
                 return
-            
+
             # Check symbol filter
-            symbols = [s.strip().upper() for s in self.config.signal_symbols.split(',')]
+            symbols = [s.strip().upper() for s in self.config.signal_symbols.split(',') if s.strip()]
             if self.config.symbol.upper() not in symbols:
                 logger.warning(f"Signal {signal_type} NOT broadcast: Symbol {self.config.symbol} not in broadcast list {symbols}")
                 return
-            
+
+            # Throttle duplicate broadcasts: compute minimal interval from max_signals_per_hour
+            now = time.time()
+            max_per_hour = max(1, int(getattr(self.config, 'max_signals_per_hour', 20)))
+            min_interval = max(15, int(3600 / max_per_hour))
+            last = self._last_broadcast.get(self.config.symbol)
+            if last and last.get('signal') == signal_type and (now - last.get('time', 0)) < min_interval:
+                logger.info(f"Skipping duplicate {signal_type} for {self.config.symbol}; last sent {(now-last.get('time',0)):.1f}s ago")
+                return
+
             logger.info(f"Broadcasting {signal_type} signal for {self.config.symbol}")
-            
+
             # Check confidence threshold (use abs value of prediction)
             if abs(prediction) < self.config.signal_min_confidence:
                 logger.info(f"Signal {signal_type} filtered: ML confidence {abs(prediction):.6f} < threshold {self.config.signal_min_confidence}")
                 return
-            
-            # Prepare signal data for broadcasting
-            signal_data = {
-                'symbol': self.config.symbol,
-                'type': signal_type,  # 'BUY' or 'SELL'
-                'price': float(close),
-                'timestamp': timestamp,
-                'ml_score': abs(float(prediction)),  # ML confidence as absolute value
-                'entry_price': float(close),
-            }
-            
-            # Calculate TP/SL based on entry price and configured percentages
-            tp_distance = close * (self.config.signal_tp_percent / 100.0)
-            sl_distance = close * (self.config.signal_sl_percent / 100.0)
-            
-            if signal_type == 'BUY':
-                signal_data['tp'] = close + tp_distance
-                signal_data['sl'] = close - sl_distance
-            else:  # SELL
-                signal_data['tp'] = close - tp_distance
-                signal_data['sl'] = close + sl_distance
-            
-            # Broadcast to all subscribers
-            chat_ids = [c.strip() for c in self.config.signal_chat_ids.split(',')]
-            for chat_id in chat_ids:
-                if chat_id:
+
+            # Compute TP/SL prices and percents
+            tp_percent = float(self.config.signal_tp_percent)
+            sl_percent = float(self.config.signal_sl_percent)
+            tp_price = close + (close * (tp_percent / 100.0)) if signal_type == 'BUY' else close - (close * (tp_percent / 100.0))
+            sl_price = close - (close * (sl_percent / 100.0)) if signal_type == 'BUY' else close + (close * (sl_percent / 100.0))
+
+            # Prepare chat id list and filter out temporarily rate-limited chats
+            chat_ids = [c.strip() for c in (self.config.signal_chat_ids or "").split(',') if c.strip()]
+            if not chat_ids:
+                logger.warning("No subscriber chat IDs configured for Signal Service")
+                return
+
+            allowed_chat_ids = []
+            for c in chat_ids:
+                retry_until = self._chat_rate_limited.get(c)
+                if retry_until and now < retry_until:
+                    logger.info(f"Skipping chat {c} due to active rate limit until {retry_until}")
+                    continue
+                allowed_chat_ids.append(c)
+
+            if not allowed_chat_ids:
+                logger.info("All subscriber chats are currently rate-limited; skipping broadcast")
+                return
+
+            # Call SignalBroadcaster.send_signal with expected signature
+            try:
+                send_result = broadcaster.send_signal(
+                    symbol=self.config.symbol,
+                    signal_type=signal_type,
+                    price=close,
+                    ml_score=abs(float(prediction)),
+                    tp_price=tp_price,
+                    sl_price=sl_price,
+                    tp_percent=tp_percent,
+                    sl_percent=sl_percent,
+                    chat_ids=allowed_chat_ids,
+                    template=self.config.signal_template,
+                    timestamp=timestamp
+                )
+                logger.info(f"Signal broadcast result: {send_result}")
+
+                # Mark rate-limited chats based on broadcaster response
+                rate_limited = send_result.get('rate_limited') or {}
+                for chat_id, retry_after in rate_limited.items():
                     try:
-                        broadcaster.send_signal(
-                            signal_type=signal_type,
-                            symbol=self.config.symbol,
-                            entry_price=close,
-                            tp=signal_data['tp'],
-                            sl=signal_data['sl'],
-                            ml_score=signal_data['ml_score'],
-                            chat_id=int(chat_id),
-                            template=self.config.signal_template
-                        )
-                    except Exception as e:
-                        logger.warning(f"Failed to send signal to {chat_id}: {e}")
-        
+                        self._chat_rate_limited[str(chat_id)] = now + int(retry_after)
+                        logger.warning(f"Chat {chat_id} rate-limited for {retry_after}s")
+                    except Exception:
+                        logger.warning(f"Invalid retry_after for {chat_id}: {retry_after}")
+
+                # Update last broadcast time if at least one message was sent
+                if send_result.get('sent_count', 0) > 0:
+                    self._last_broadcast[self.config.symbol] = {'signal': signal_type, 'time': now}
+
+            except Exception as e:
+                logger.warning(f"Failed to send signal via broadcaster: {e}")
+
         except Exception as e:
             logger.error(f"Error broadcasting signal: {e}")
     
@@ -2198,9 +2277,11 @@ class MainWindow(QMainWindow):
     def save_config(self):
         """Save configuration."""
         try:
-            # Update config from all tabs
-            self.config = self.config_tab.get_config()
-            self.config = self.indicator_tab.get_config()
+            # Update config from all tabs (merge in-place to avoid overwriting)
+            # Tabs modify the shared TradingConfig instance; call their getters
+            # to apply UI values onto the existing config object.
+            self.config_tab.get_config()
+            self.indicator_tab.get_config()
             self.config.test_size = self.training_tab.test_size.value()
             self.config.validation_size = self.training_tab.validation_size.value()
             self.config.epochs = self.training_tab.epochs.value()
@@ -2224,7 +2305,13 @@ class MainWindow(QMainWindow):
             # Save to file
             with open(self.config_file, 'w') as f:
                 json.dump(self.config.to_dict(), f, indent=2)
-            
+            # Also export YAML files for `auto_trading.py` to consume
+            try:
+                self.config.save_to_yaml_files(config_dir='config')
+                logger.info("Exported YAML configs to config/")
+            except Exception as e:
+                logger.warning(f"Failed to export YAML config files: {e}")
+
             logger.info(f"Configuration saved to {self.config_file}")
             QMessageBox.information(self, "Success", f"Configuration saved to {self.config_file}")
         

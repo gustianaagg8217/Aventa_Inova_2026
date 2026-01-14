@@ -32,9 +32,10 @@ class BotConfig:
     from pathlib import Path
     import yaml
     
-    # Load main config
-    config_path = Path('config/config.yaml')
-    trading_config_path = Path('config/trading_config.yaml')
+    # Resolve config files relative to this script's directory (avoid cwd issues)
+    base_dir = Path(__file__).parent
+    config_path = base_dir / 'config' / 'config.yaml'
+    trading_config_path = base_dir / 'config' / 'trading_config.yaml'
     
     if config_path.exists():
         with open(config_path) as f:
@@ -47,6 +48,14 @@ class BotConfig:
             trade_cfg = yaml.safe_load(f)
     else:
         trade_cfg = {}
+
+    # Log which config files were loaded and key values to aid debugging
+    try:
+        print(f"[CONFIG] Using config files: {config_path} , {trading_config_path}")
+        loaded_max_daily = trade_cfg.get('risk', {}).get('max_daily_loss', None)
+        print(f"[CONFIG] trading_config.max_daily_loss = {loaded_max_daily}")
+    except Exception:
+        pass
     
     # MT5 Connection (prefer environment variables, fall back to config)
     MT5_PATH = os.getenv('MT5_PATH') or main_cfg.get('trading', {}).get('mt5_path', "C:\\Program Files\\XM Global MT5\\terminal64.exe")
@@ -72,7 +81,7 @@ class BotConfig:
     LOT_SIZE = trade_cfg.get('risk', {}).get('lot_size', 0.01)
     MAX_POSITIONS = trade_cfg.get('risk', {}).get('max_positions', 10)
     MAX_DAILY_TRADES = 15
-    MAX_DAILY_LOSS = trade_cfg.get('risk', {}).get('max_daily_loss', -1550.0)
+    MAX_DAILY_LOSS = trade_cfg.get('risk', {}).get('max_daily_loss', -11550.0)
     MAX_SPREAD = 30
     
     # Session Filtering
@@ -98,8 +107,8 @@ class BotConfig:
     
     # Telegram Notifications
     TELEGRAM_ENABLED = True
-    TELEGRAM_BOT_TOKEN = "8405053497:AAF48BoKZ75M0IVK_2Mj5jlk1UgEMYBKJM4"
-    TELEGRAM_CHAT_ID = ["7521820149"]
+    TELEGRAM_BOT_TOKEN = "121212121:sssss"
+    TELEGRAM_CHAT_ID = ["1234"]
     
     notifier = TelegramNotifier(TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID)
 
@@ -586,11 +595,20 @@ class AutoTradingBot:
         
         if not positions:
             return
-        
+        # Compute total open positions P&L but do NOT add repeatedly to daily_pnl
+        total_open_pnl = 0.0
+        for pos in positions:
+            try:
+                total_open_pnl += float(pos.profit)
+            except Exception:
+                pass
+
+        # Store open positions P&L separately for display/monitoring
+        self.state['open_positions_pnl'] = total_open_pnl
+
+        # Print a summary of each position (non-accumulating)
         for pos in positions:
             pnl = pos.profit
-            self.state['daily_pnl'] = self.state.get('daily_pnl', 0) + pnl
-            
             direction = "LONG" if pos.type == 0 else "SHORT"
             print(f"[POSITION] {direction} | Entry: {pos.price_open:.2f} | "
                   f"Current P&L: ${pnl:.2f}", end='\r')
@@ -797,6 +815,12 @@ class AutoTradingBot:
             direction = "LONG" if deal.type == mt5.DEAL_TYPE_SELL else "SHORT"
 
             pnl = deal.profit
+            # Update realized daily P&L when a deal is closed (avoid double-processing via notified_deals)
+            try:
+                self.state['daily_pnl'] = self.state.get('daily_pnl', 0.0) + float(pnl)
+                save_bot_state(self.state)
+            except Exception:
+                pass
             status = "WIN" if pnl > 0 else "LOSS"
             result_emoji = "✅" if pnl > 0 else "❌"
 
